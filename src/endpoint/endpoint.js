@@ -20,10 +20,12 @@ const config = require('../../config');
 const s3_rest = require('./s3/s3_rest');
 const blob_rest = require('./blob/blob_rest');
 const sts_rest = require('./sts/sts_rest');
+const iam_rest = require('./iam/iam_rest');
 const lambda_rest = require('./lambda/lambda_rest');
 const endpoint_utils = require('./endpoint_utils');
 const FuncSDK = require('../sdk/func_sdk');
 const StsSDK = require('../sdk/sts_sdk');
+const AccountSDK = require('../sdk/account_sdk');
 const ObjectIO = require('../sdk/object_io');
 const ObjectSDK = require('../sdk/object_sdk');
 const xml_utils = require('../util/xml_utils');
@@ -61,6 +63,7 @@ dbg.log0('endpoint: replacing old umask: ', old_umask.toString(8), 'with new uma
  *  object_sdk?: ObjectSDK;
  *  func_sdk?: FuncSDK;
  *  sts_sdk?: StsSDK;
+ *  account_sdk?: AccountSDK;
  *  virtual_hosts?: readonly string[];
  * }} EndpointRequest
  */
@@ -77,6 +80,7 @@ dbg.log0('endpoint: replacing old umask: ', old_umask.toString(8), 'with new uma
  *  http_port?: number;
  *  https_port?: number;
  *  https_port_sts?: number;
+ *  https_port_iam?: number;
  *  metrics_port?: number;
  *  nsfs_config_root?: string;
  *  init_request_sdk?: EndpointHandler;
@@ -98,6 +102,7 @@ async function main(options = {}) {
         const http_port = options.http_port || Number(process.env.ENDPOINT_PORT) || 6001;
         const https_port = options.https_port || Number(process.env.ENDPOINT_SSL_PORT) || 6443;
         const https_port_sts = options.https_port_sts || Number(process.env.ENDPOINT_SSL_PORT_STS) || 7443;
+        const https_port_iam = options.https_port_iam || Number(process.env.ENDPOINT_SSL_PORT_IAM) || 7444;
         const endpoint_group_id = process.env.ENDPOINT_GROUP_ID || 'default-endpoint-group';
 
         const virtual_hosts = Object.freeze(
@@ -152,11 +157,13 @@ async function main(options = {}) {
 
         const endpoint_request_handler = create_endpoint_handler(init_request_sdk, virtual_hosts);
         const endpoint_request_handler_sts = create_endpoint_handler(init_request_sdk, virtual_hosts, true);
+        const endpoint_request_handler_iam = create_endpoint_handler_iam(init_request_sdk);
 
         const ssl_cert_info = await ssl_utils.get_ssl_cert_info('S3', options.nsfs_config_root);
         const ssl_options = { ...ssl_cert_info.cert, honorCipherOrder: true };
         const https_server = https.createServer(ssl_options, endpoint_request_handler);
         const https_server_sts = https.createServer(ssl_options, endpoint_request_handler_sts);
+        const https_server_iam = https.createServer(ssl_options, endpoint_request_handler_iam);
         ssl_cert_info.on('update', updated_ssl_cert_info => {
             dbg.log0("Setting updated S3 ssl certs for endpoint.");
             const updated_ssl_options = { ...updated_ssl_cert_info.cert, honorCipherOrder: true };
@@ -182,6 +189,11 @@ async function main(options = {}) {
             dbg.log0('Starting STS HTTPS', https_port_sts);
             await listen_http(https_port_sts, https_server_sts);
             dbg.log0('Started STS HTTPS successfully');
+        }
+        if (https_port_iam > 0) {
+            dbg.log0('Starting IAM HTTPS', https_port_iam);
+            await listen_http(https_port_iam, https_server_iam);
+            dbg.log0('Started IAM HTTPS successfully');
         }
         if (metrics_port > 0 && cluster.isPrimary) {
             dbg.log0('Starting metrics server', metrics_port);
@@ -254,6 +266,16 @@ function create_endpoint_handler(init_request_sdk, virtual_hosts, sts) {
     return sts ? endpoint_sts_request_handler : endpoint_request_handler;
 }
 
+function create_endpoint_handler_iam(init_request_sdk) {
+    /** @type {EndpointHandler} */
+    const endpoint_iam_request_handler = (req, res) => {
+        endpoint_utils.prepare_rest_request(req);
+        init_request_sdk(req, res);
+        return iam_rest(req, res);
+    };
+    return endpoint_iam_request_handler;
+}
+
 function endpoint_fork_id_handler(req, res) {
     let reply = {};
     if (cluster.isWorker) {
@@ -289,6 +311,8 @@ function create_init_request_sdk(rpc, internal_rpc_client, object_io) {
         const rpc_client = rpc.new_client();
         req.func_sdk = new FuncSDK(rpc_client);
         req.sts_sdk = new StsSDK(rpc_client, internal_rpc_client);
+        // this flow was not checked (assumed that init_request_sdk was passed) in account_sdk
+        req.account_sdk = new AccountSDK(rpc_client, internal_rpc_client);
         req.object_sdk = new ObjectSDK({
             rpc_client,
             internal_rpc_client,
@@ -480,6 +504,7 @@ function setup_http_server(server) {
 
 exports.main = main;
 exports.create_endpoint_handler = create_endpoint_handler;
+exports.create_endpoint_handler_iam = create_endpoint_handler_iam;
 exports.create_init_request_sdk = create_init_request_sdk;
 
 if (require.main === module) main();
