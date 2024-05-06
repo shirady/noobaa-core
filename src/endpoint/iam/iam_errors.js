@@ -105,6 +105,7 @@ IamError.NotImplemented = Object.freeze({
 // CreateUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors
 // DeleteUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html#API_DeleteUser_Errors
 // GetUser    errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetUser.html#API_GetUser_Errors
+// UpdateUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_UpdateUser.html#API_UpdateUser_Errors
 IamError.ConcurrentModification = Object.freeze({
     code: 'EntityAlreadyExists',
     message: 'The request was rejected because multiple requests to change this object were submitted simultaneously. Wait a few minutes and submit your request again.',
@@ -138,6 +139,11 @@ IamError.ServiceFailure = Object.freeze({
 IamError.DeleteConflict = Object.freeze({
     code: 'DeleteConflict',
     message: 'The request was rejected because it attempted to delete a resource that has attached subordinate entities. The error message describes these entities.',
+    http_code: 409,
+});
+IamError.EntityTemporarilyUnmodifiable = Object.freeze({
+    code: 'EntityTemporarilyUnmodifiable',
+    message: 'The request was rejected because it referenced an entity that is temporarily unmodifiable, such as a user name that was deleted and then recreated. The error indicates that the request is likely to succeed if you try again after waiting several minutes. The error message describes the entity.',
     http_code: 409,
 });
 

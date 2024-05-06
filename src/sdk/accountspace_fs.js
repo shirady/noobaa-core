@@ -5,7 +5,6 @@ const _ = require('lodash');
 const path = require('path');
 const config = require('../../config');
 const dbg = require('../util/debug_module')(__filename);
-const nb_native = require('../util/nb_native');
 const native_fs_utils = require('../util/native_fs_utils');
 const { CONFIG_SUBDIRS } = require('../manage_nsfs/manage_nsfs_constants');
 const { create_arn, AWS_EMPTY_PATH, get_gull_action_name } = require('../endpoint/iam/iam_utils');
@@ -16,6 +15,11 @@ const IamError = require('../endpoint/iam/iam_errors').IamError;
 const access_key_status_enum = {
     ACTIVE: 'ACTIVE',
     INACTIVE: 'INACTIVE',
+};
+
+const entity_enum = {
+    USER: 'USER',
+    ACCESS_KEY: 'ACCESS_KEY',
 };
 
 ////////////////////
@@ -144,7 +148,7 @@ class AccountSpaceFS {
                 create_date: new_account.creation_date,
             };
         } catch (err) {
-            throw this._translate_error_codes(err);
+            throw this._translate_error_codes(err, entity_enum.USER);
         }
     }
 
@@ -176,7 +180,7 @@ class AccountSpaceFS {
         try {
             account_to_get = await native_fs_utils.read_file(this.fs_context, account_config_path);
         } catch (err) {
-            throw this._translate_error_codes(err);
+            throw this._translate_error_codes(err, entity_enum.USER);
         }
         // 4 - check that the user account to get is owned by the root account
         const is_user_account_to_get_owned_by_root_user = this._check_root_account_owns_user(requesting_account, account_to_get);
@@ -199,15 +203,79 @@ class AccountSpaceFS {
     }
 
     async update_user(params, account_sdk) {
-        dbg.log1('update_user', params);
-        const path_friendly = params.new_path ? params.new_path : dummy_user1.path;
-        const username = params.new_username ? params.new_username : params.username;
-        return {
-            path: path_friendly,
-            username: username,
-            user_id: dummy_user1.user_id,
-            arn: create_arn(dummy_account_id, username, path_friendly),
-        };
+        try {
+            dbg.log1('AccountSpaceFS.update_user', params, account_sdk);
+            // 1 - check that the requesting account is a root user account
+            const requesting_account = account_sdk.requesting_account;
+            const is_root_account = this._check_root_account(requesting_account);
+            dbg.log0('AccountSpaceFS.update_user requesting_account', requesting_account,
+                'is_root_account', is_root_account);
+            if (!is_root_account) {
+                dbg.error('AccountSpaceFS.update_user requesting account is not a root account',
+                    requesting_account);
+                const detail = `User is not authorized to perform ${get_gull_action_name('update_user')}`;
+                const { code, message, http_code } = IamError.NotAuthorized;
+                throw new IamError({ code, message, http_code, detail });
+            }
+            // 2 - check that the user account config file exists
+            const account_config_path = this._get_account_config_path(params.username);
+            const is_user_account_exists = await native_fs_utils.is_path_exists(this.fs_context, account_config_path);
+            if (!is_user_account_exists) {
+                dbg.error('AccountSpaceFS.update_user username does not exist', params.username);
+                const detail = `The user with name ${params.username} cannot be found.`;
+                const { code, message, http_code } = IamError.NoSuchEntity;
+                throw new IamError({ code, message, http_code, detail });
+            }
+            // 3 - read the account config file
+            const account_to_update = await native_fs_utils.read_file(this.fs_context, account_config_path);
+            // 4 - check that the user account to get is owned by the root account
+            const is_user_account_to_update_owned_by_root_user = this._check_root_account_owns_user(requesting_account, account_to_update);
+            if (!is_user_account_to_update_owned_by_root_user) {
+                dbg.error('AccountSpaceFS.update_user requested account is not owned by root account',
+                    account_to_update);
+                const detail = `User is not authorized to perform ${get_gull_action_name('update_user')}`;
+                const { code, message, http_code } = IamError.NotAuthorized;
+                throw new IamError({ code, message, http_code, detail });
+            }
+            // 5 - check if username was updated
+            const is_username_update = !_.isUndefined(params.new_username) &&
+                params.new_username !== params.username;
+            if (!_.isUndefined(params.new_path)) account_to_update.path = params.new_path;
+            if (is_username_update) {
+                dbg.log0('AccountSpaceFS.update_user is_username_update', is_username_update);
+                // 5.1 - check if username already exists (global scope - all config files names)
+                const new_username_account_config_path = this._get_account_config_path(params.new_username);
+                const is_new_username_exists = await native_fs_utils.is_path_exists(this.fs_context,
+                    new_username_account_config_path);
+                if (is_new_username_exists) {
+                    dbg.error('AccountSpaceFS.create_user username already exists', params.username);
+                    const detail = `User with name ${params.username} already exists.`;
+                    const { code, message, http_code } = IamError.EntityAlreadyExists;
+                    throw new IamError({ code, message, http_code, detail });
+                }
+                account_to_update.name = params.new_username;
+                account_to_update.email = params.new_username; // internally saved
+                const account_to_update_string = JSON.stringify(account_to_update);
+                // 5.2 - create the new config file (with the new name same data) and delete the the existing config file
+                await native_fs_utils.create_config_file(this.fs_context, this.accounts_dir,
+                    new_username_account_config_path, account_to_update_string);
+                await native_fs_utils.delete_config_file(this.fs_context, this.accounts_dir,
+                    account_config_path);
+            } else { // username was not updated
+                const account_to_update_string = JSON.stringify(account_to_update);
+                nsfs_schema_utils.validate_account_schema(JSON.parse(account_to_update_string));
+                await native_fs_utils.update_config_file(this.fs_context, this.accounts_dir,
+                    account_config_path, account_to_update_string);
+            }
+            return {
+                path: account_to_update.path,
+                username: account_to_update.name,
+                user_id: account_to_update._id,
+                arn: create_arn(requesting_account._id, account_to_update.name, account_to_update.path),
+            };
+        } catch (err) {
+            throw this._translate_error_codes(err, entity_enum.USER);
+        }
     }
 
     async delete_user(params, account_sdk) {
@@ -238,7 +306,7 @@ class AccountSpaceFS {
         try {
             account_to_delete = await native_fs_utils.read_file(this.fs_context, account_config_path);
         } catch (err) {
-            throw this._translate_error_codes(err);
+            throw this._translate_error_codes(err, entity_enum.USER);
         }
         // 4 - check that the deleted user is not a root account
         const is_deleted_account_root_account = this._check_root_account(account_to_delete);
@@ -273,7 +341,7 @@ class AccountSpaceFS {
         try {
             await native_fs_utils.delete_config_file(this.fs_context, this.accounts_dir, account_config_path);
         } catch (err) {
-            throw this._translate_error_codes(err);
+            throw this._translate_error_codes(err, entity_enum.USER);
         }
     }
 
