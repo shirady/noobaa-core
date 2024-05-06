@@ -27,6 +27,18 @@ module.exports = {
         creation_date: {
             type: 'string',
         },
+        // owner is the account id that owns this account (permission wise)
+        owner: {
+            type: 'string'
+        },
+        // creator is the account id that created this account (internal information)
+        creator: {
+            type: 'string',
+        },
+        // AWS friendly path (identifier)
+        path: {
+            type: 'string'
+        },
         master_key_id: {
             objectid: true
         },

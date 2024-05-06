@@ -101,6 +101,39 @@ IamError.NotImplemented = Object.freeze({
     http_code: 501,
 });
 
+// These errors were copied from IAM APIs errors
+// CreateUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors
+IamError.ConcurrentModification = Object.freeze({
+    code: 'EntityAlreadyExists',
+    message: 'The request was rejected because multiple requests to change this object were submitted simultaneously. Wait a few minutes and submit your request again.',
+    http_code: 409,
+});
+IamError.EntityAlreadyExists = Object.freeze({
+    code: 'EntityAlreadyExists',
+    message: 'The request was rejected because it attempted to create a resource that already exists.',
+    http_code: 409,
+});
+IamError.InvalidInput = Object.freeze({
+    code: 'EntityAlreadyExists',
+    message: 'The request was rejected because an invalid or out-of-range value was supplied for an input parameter.',
+    http_code: 400,
+});
+IamError.LimitExceeded = Object.freeze({
+    code: 'EntityAlreadyExists',
+    message: 'The request was rejected because it attempted to create resources beyond the current AWS account limits. The error message describes the limit exceeded.',
+    http_code: 409,
+});
+IamError.NoSuchEntity = Object.freeze({
+    code: 'NoSuchEntity',
+    message: 'The request was rejected because it referenced a resource entity that does not exist. The error message describes the resource.',
+    http_code: 404,
+});
+IamError.ServiceFailure = Object.freeze({
+    code: 'ServiceFailure',
+    message: 'The request processing has failed because of an unknown error, exception or failure.',
+    http_code: 500,
+});
+
 // These errors were copied from STS errors
 // TODO - can be deleted after verifying we will not use them
 IamError.InvalidParameterCombination = Object.freeze({

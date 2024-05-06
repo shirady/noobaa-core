@@ -5,8 +5,12 @@ const _ = require('lodash');
 const path = require('path');
 const config = require('../../config');
 const dbg = require('../util/debug_module')(__filename);
+const native_fs_utils = require('../util/native_fs_utils');
 const { CONFIG_SUBDIRS } = require('../manage_nsfs/manage_nsfs_constants');
-const { create_arn, AWS_EMPTY_PATH } = require('../endpoint/iam/iam_utils');
+const { create_arn, AWS_EMPTY_PATH, get_gull_action_name } = require('../endpoint/iam/iam_utils');
+const { generate_id } = require('../manage_nsfs/manage_nsfs_cli_utils');
+const nsfs_schema_utils = require('../manage_nsfs/nsfs_schema_utils');
+const IamError = require('../endpoint/iam/iam_errors').IamError;
 
 const access_key_status_enum = {
     ACTIVE: 'ACTIVE',
@@ -101,14 +105,47 @@ class AccountSpaceFS {
     ////////////
 
     async create_user(params, account_sdk) {
-        dbg.log1('create_user', params);
-        return {
-            path: params.path,
-            username: params.username,
-            user_id: dummy_user1.user_id,
-            arn: create_arn(dummy_account_id, params.username, params.path),
-            create_date: new Date(),
-        };
+        dbg.log1('AccountSpaceFS.create_user', params, account_sdk);
+        // 1 - check that the requesting account is a root user account
+        const requesting_account = account_sdk.requesting_account;
+        const is_root_account = this._check_requesting_account_permission(requesting_account);
+        dbg.log0('AccountSpaceFS.create_user requesting_account', requesting_account,
+            'is_root_account', is_root_account);
+        if (!is_root_account) {
+            dbg.error('AccountSpaceFS.create_user requesting account is not a root account',
+                requesting_account);
+                const detail = `User is not authorized to perform ${get_gull_action_name('create_user')}`;
+                const { code, message, http_code } = IamError.NotAuthorized;
+                throw new IamError({ code, message, http_code, detail });
+        }
+        // 2 - check if username already exists (global scope - all config files names)
+        // GAP - it should be only under the root account in the future
+        const account_config_path = this._get_account_config_path(params.username);
+        const name_exists = await native_fs_utils.is_path_exists(this.fs_context, account_config_path);
+        if (name_exists) {
+            dbg.error('AccountSpaceFS.create_user username already exists', params.username);
+            const detail = `User with name ${params.username} already exists.`;
+            const { code, message, http_code } = IamError.EntityAlreadyExists;
+            throw new IamError({ code, message, http_code, detail });
+            // TODO: handle the parsing issue of the error
+        }
+        // 3 - copy the data from the root account user details to a new config file
+        const new_account = this._new_user_defaults(requesting_account, params);
+        dbg.log0('AccountSpaceFS.create_user new_account', new_account);
+        try {
+            const new_account_string = JSON.stringify(new_account);
+            nsfs_schema_utils.validate_account_schema(JSON.parse(new_account_string));
+            await native_fs_utils.create_config_file(this.fs_context, this.accounts_dir, account_config_path, new_account_string);
+            return {
+                path: new_account.path,
+                username: new_account.name,
+                user_id: new_account._id,
+                arn: create_arn(requesting_account._id, new_account.name, new_account.path),
+                create_date: new_account.creation_date,
+            };
+        } catch (err) {
+            throw this._translate_error_codes(err);
+        }
     }
 
     async get_user(params, account_sdk) {
@@ -223,6 +260,61 @@ class AccountSpaceFS {
             },
         ];
         return { members, is_truncated, username};
+    }
+
+    ////////////////////////
+    // INTERNAL FUNCTIONS //
+    ////////////////////////
+    /* currently based or copied from bucketspace_fs */
+
+     _get_account_config_path(name) {
+         return path.join(this.accounts_dir, name + '.json');
+     }
+
+     _get_access_keys_config_path(access_key) {
+         return path.join(this.access_keys_dir, access_key + '.symlink');
+     }
+
+     _new_user_defaults(requesting_account, params) {
+        const distinguished_name = requesting_account.nsfs_account_config.distinguished_name;
+        return {
+            _id: generate_id(),
+            name: params.username,
+            email: params.username,
+            creation_date: new Date().toISOString(),
+            owner: requesting_account._id,
+            creator: requesting_account._id,
+            path: params.path,
+            master_key_id: requesting_account.master_key_id, // it is per system, we can copy from the account
+            allow_bucket_creation: requesting_account.allow_bucket_creation,
+            force_md5_etag: requesting_account.force_md5_etag,
+            access_keys: [],
+            nsfs_account_config: {
+                distinguished_name: distinguished_name,
+                uid: distinguished_name ? undefined : requesting_account.nsfs_account_config.uid,
+                gid: distinguished_name ? undefined : requesting_account.nsfs_account_config.gid,
+                new_buckets_path: requesting_account.nsfs_account_config.new_buckets_path,
+                fs_backend: requesting_account.nsfs_account_config.fs_backend,
+            }
+        };
+    }
+
+    _translate_error_codes(err, entity) {
+        if (err.rpc_code) return err;
+        if (err.code === 'ENOENT') err.rpc_code = `NO_SUCH_${entity}`;
+        if (err.code === 'EEXIST') err.rpc_code = `${entity}_ALREADY_EXISTS`;
+        if (err.code === 'EPERM' || err.code === 'EACCES') err.rpc_code = 'UNAUTHORIZED';
+        if (err.code === 'IO_STREAM_ITEM_TIMEOUT') err.rpc_code = 'IO_STREAM_ITEM_TIMEOUT';
+        if (err.code === 'INTERNAL_ERROR') err.rpc_code = 'INTERNAL_ERROR';
+        return err;
+    }
+
+    _check_requesting_account_permission(requesting_account) {
+        if (_.isUndefined(requesting_account.owner) ||
+            requesting_account.owner === requesting_account._id) {
+            return true;
+        }
+        return false;
     }
 }
 
