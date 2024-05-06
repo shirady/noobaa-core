@@ -103,6 +103,7 @@ IamError.NotImplemented = Object.freeze({
 
 // These errors were copied from IAM APIs errors
 // CreateUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors
+// DeleteUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html#API_DeleteUser_Errors
 IamError.ConcurrentModification = Object.freeze({
     code: 'EntityAlreadyExists',
     message: 'The request was rejected because multiple requests to change this object were submitted simultaneously. Wait a few minutes and submit your request again.',
@@ -132,6 +133,11 @@ IamError.ServiceFailure = Object.freeze({
     code: 'ServiceFailure',
     message: 'The request processing has failed because of an unknown error, exception or failure.',
     http_code: 500,
+});
+IamError.DeleteConflict = Object.freeze({
+    code: 'DeleteConflict',
+    message: 'The request was rejected because it attempted to delete a resource that has attached subordinate entities. The error message describes these entities.',
+    http_code: 409,
 });
 
 // These errors were copied from STS errors

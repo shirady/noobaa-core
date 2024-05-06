@@ -9,6 +9,7 @@ const IAM_SERVICE_SMALL_LETTERS = 'iam';
 
 const ACTIONS_MAP = {
     'create_user': 'CreateUser',
+    'delete_user': 'DeleteUser',
 };
 
 /**

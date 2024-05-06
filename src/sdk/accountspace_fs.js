@@ -5,6 +5,7 @@ const _ = require('lodash');
 const path = require('path');
 const config = require('../../config');
 const dbg = require('../util/debug_module')(__filename);
+const nb_native = require('../util/nb_native');
 const native_fs_utils = require('../util/native_fs_utils');
 const { CONFIG_SUBDIRS } = require('../manage_nsfs/manage_nsfs_constants');
 const { create_arn, AWS_EMPTY_PATH, get_gull_action_name } = require('../endpoint/iam/iam_utils');
@@ -108,7 +109,7 @@ class AccountSpaceFS {
         dbg.log1('AccountSpaceFS.create_user', params, account_sdk);
         // 1 - check that the requesting account is a root user account
         const requesting_account = account_sdk.requesting_account;
-        const is_root_account = this._check_requesting_account_permission(requesting_account);
+        const is_root_account = this._check_root_account(requesting_account);
         dbg.log0('AccountSpaceFS.create_user requesting_account', requesting_account,
             'is_root_account', is_root_account);
         if (!is_root_account) {
@@ -127,7 +128,6 @@ class AccountSpaceFS {
             const detail = `User with name ${params.username} already exists.`;
             const { code, message, http_code } = IamError.EntityAlreadyExists;
             throw new IamError({ code, message, http_code, detail });
-            // TODO: handle the parsing issue of the error
         }
         // 3 - copy the data from the root account user details to a new config file
         const new_account = this._new_user_defaults(requesting_account, params);
@@ -174,8 +174,70 @@ class AccountSpaceFS {
     }
 
     async delete_user(params, account_sdk) {
-        dbg.log1('delete_user', params);
-        // nothing to do at this point
+        dbg.log1('AccountSpaceFS.delete_user', params, account_sdk);
+        // 1 - check that the requesting account is a root user account
+        const requesting_account = account_sdk.requesting_account;
+        const is_root_account = this._check_root_account(requesting_account);
+        dbg.log0('AccountSpaceFS.delete_user requesting_account', requesting_account,
+            'is_root_account', is_root_account);
+        if (!is_root_account) {
+            dbg.error('AccountSpaceFS.delete_user requesting account is not a root account',
+                requesting_account);
+                const detail = `User is not authorized to perform ${get_gull_action_name('delete_user')}`;
+                const { code, message, http_code } = IamError.NotAuthorized;
+                throw new IamError({ code, message, http_code, detail });
+        }
+        // 2 - check that the deleted account config file exists
+        const account_config_path = this._get_account_config_path(params.username);
+        const is_deleted_account_exists = await native_fs_utils.is_path_exists(this.fs_context, account_config_path);
+        if (!is_deleted_account_exists) {
+            dbg.error('AccountSpaceFS.delete_user username does not exist', params.username);
+            const detail = `The user with name ${params.username} cannot be found.`;
+            const { code, message, http_code } = IamError.NoSuchEntity;
+            throw new IamError({ code, message, http_code, detail });
+        }
+        // 3 - read the account config file
+        let account_to_delete;
+        try {
+            account_to_delete = await native_fs_utils.read_file(this.fs_context, account_config_path);
+        } catch (err) {
+            throw this._translate_error_codes(err);
+        }
+        // 4 - check that the deleted user is not a root account
+        const is_deleted_account_root_account = this._check_root_account(account_to_delete);
+        dbg.log0('AccountSpaceFS.delete_user account_to_delete', account_to_delete,
+            'is_deleted_account_root_account', is_deleted_account_root_account);
+        if (is_deleted_account_root_account) {
+            dbg.error('AccountSpaceFS.delete_user requested account is a root account',
+            account_to_delete);
+            const detail = `User is not authorized to perform ${get_gull_action_name('delete_user')}`;
+            const { code, message, http_code } = IamError.NotAuthorized;
+            throw new IamError({ code, message, http_code, detail });
+        }
+        // 5 - check that the deleted user is owned by the root account
+        const is_deleted_account_owned_by_root_user = this._check_root_account_owns_user(requesting_account, account_to_delete);
+        if (!is_deleted_account_owned_by_root_user) {
+            dbg.error('AccountSpaceFS.delete_user requested account is not owned by root account',
+            account_to_delete);
+            const detail = `User is not authorized to perform ${get_gull_action_name('delete_user')}`;
+            const { code, message, http_code } = IamError.NotAuthorized;
+            throw new IamError({ code, message, http_code, detail });
+        }
+        // 6 - check if the user doesn’t have items related to it (in our case only access keys)
+        const is_access_keys_removed = account_to_delete.access_keys.length === 0;
+        if (!is_access_keys_removed) {
+            dbg.error('AccountSpaceFS.delete_user requested account has access keys',
+            account_to_delete);
+            const detail = `Cannot delete entity, must delete access keys first.`;
+            const { code, message, http_code } = IamError.DeleteConflict;
+            throw new IamError({ code, message, http_code, detail });
+        }
+        // 7 - delete the account
+        try {
+            await native_fs_utils.delete_config_file(this.fs_context, this.accounts_dir, account_config_path);
+        } catch (err) {
+            throw this._translate_error_codes(err);
+        }
     }
 
     async list_users(params, account_sdk) {
@@ -309,12 +371,17 @@ class AccountSpaceFS {
         return err;
     }
 
-    _check_requesting_account_permission(requesting_account) {
-        if (_.isUndefined(requesting_account.owner) ||
-            requesting_account.owner === requesting_account._id) {
+    _check_root_account(account) {
+        if (_.isUndefined(account.owner) ||
+            account.owner === account._id) {
             return true;
         }
         return false;
+    }
+
+    _check_root_account_owns_user(root_account, user_account) {
+        if (_.isUndefined(user_account.owner)) return false;
+        return root_account._id === user_account.owner;
     }
 }
 
