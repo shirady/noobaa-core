@@ -149,15 +149,52 @@ class AccountSpaceFS {
     }
 
     async get_user(params, account_sdk) {
-        dbg.log1('get_user', params);
-        const { dummy_user } = get_user_details(params.username);
+        dbg.log1('AccountSpaceFS.get_user', params, account_sdk);
+        // 1 - check that the requesting account is a root user account
+        const requesting_account = account_sdk.requesting_account;
+        const is_root_account = this._check_root_account(requesting_account);
+        dbg.log0('AccountSpaceFS.get_user requesting_account', requesting_account,
+            'is_root_account', is_root_account);
+        if (!is_root_account) {
+            dbg.error('AccountSpaceFS.get_user requesting account is not a root account',
+                requesting_account);
+                const detail = `User is not authorized to perform ${get_gull_action_name('get_user')}`;
+                const { code, message, http_code } = IamError.NotAuthorized;
+                throw new IamError({ code, message, http_code, detail });
+        }
+        // 2 - check that the user account config file exists
+        const account_config_path = this._get_account_config_path(params.username);
+        const is_user_account_exists = await native_fs_utils.is_path_exists(this.fs_context, account_config_path);
+        if (!is_user_account_exists) {
+            dbg.error('AccountSpaceFS.get_user username does not exist', params.username);
+            const detail = `The user with name ${params.username} cannot be found.`;
+            const { code, message, http_code } = IamError.NoSuchEntity;
+            throw new IamError({ code, message, http_code, detail });
+        }
+        // 3 - read the account config file
+        let account_to_get;
+        try {
+            account_to_get = await native_fs_utils.read_file(this.fs_context, account_config_path);
+        } catch (err) {
+            throw this._translate_error_codes(err);
+        }
+        // 4 - check that the user account to get is owned by the root account
+        const is_user_account_to_get_owned_by_root_user = this._check_root_account_owns_user(requesting_account, account_to_get);
+        if (!is_user_account_to_get_owned_by_root_user) {
+            dbg.error('AccountSpaceFS.get_user requested account is not owned by root account',
+            account_to_get);
+            const detail = `User is not authorized to perform ${get_gull_action_name('get_user')}`;
+            const { code, message, http_code } = IamError.NotAuthorized;
+            throw new IamError({ code, message, http_code, detail });
+        }
+        // 5 - send the details
         return {
-            user_id: dummy_user.user_id,
-            path: dummy_user.path,
-            username: dummy_user.username,
-            arn: create_arn(dummy_account_id, dummy_user.username, dummy_user.path),
-            create_date: new Date(Date.now() - 30 * MS_PER_MINUTE),
-            password_last_used: new Date(Date.now() - MS_PER_MINUTE),
+            user_id: account_to_get._id,
+            path: account_to_get.path,
+            username: account_to_get.name,
+            arn: create_arn(requesting_account._id, account_to_get.name, account_to_get.path),
+            create_date: account_to_get.creation_date,
+            password_last_used: account_to_get.creation_date, // GAP
         };
     }
 

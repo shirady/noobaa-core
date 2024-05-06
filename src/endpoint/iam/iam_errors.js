@@ -104,6 +104,7 @@ IamError.NotImplemented = Object.freeze({
 // These errors were copied from IAM APIs errors
 // CreateUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors
 // DeleteUser errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html#API_DeleteUser_Errors
+// GetUser    errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetUser.html#API_GetUser_Errors
 IamError.ConcurrentModification = Object.freeze({
     code: 'EntityAlreadyExists',
     message: 'The request was rejected because multiple requests to change this object were submitted simultaneously. Wait a few minutes and submit your request again.',
