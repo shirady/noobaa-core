@@ -13,7 +13,7 @@ async function delete_access_key(req, res) {
         access_key: req.body.access_key_id
     };
     dbg.log1('IAM DELETE ACCESS KEY', params);
-    await req.account_sdk.delete_access_key(params);
+    await req.account_sdk.delete_access_key(params, req.account_sdk);
 
     return {
         DeleteAccessKeyResponse: {

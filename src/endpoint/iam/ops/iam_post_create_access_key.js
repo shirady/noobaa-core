@@ -12,7 +12,7 @@ async function create_access_key(req, res) {
         username: req.body.user_name,
     };
     dbg.log1('IAM CREATE ACCESS KEY', params);
-    const reply = await req.account_sdk.create_access_key(params);
+    const reply = await req.account_sdk.create_access_key(params, req.account_sdk);
     dbg.log2('create_access_key reply (omit secrets key id)', _.omit(reply, 'secret_key'));
 
     return {

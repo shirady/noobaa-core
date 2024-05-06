@@ -14,7 +14,7 @@ async function update_user(req, res) {
         new_path: req.body.new_path,
     };
     dbg.log1('IAM UPDATE USER', params);
-    const reply = await req.account_sdk.update_user(params);
+    const reply = await req.account_sdk.update_user(params, req.account_sdk);
     dbg.log1('update_user reply', reply);
 
     return {

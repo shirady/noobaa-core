@@ -15,7 +15,7 @@ async function list_users(req, res) {
         path_prefix: req.body.path_prefix,
     };
     dbg.log1('IAM LIST USERS', params);
-    const reply = await req.account_sdk.list_users(params);
+    const reply = await req.account_sdk.list_users(params, req.account_sdk);
     dbg.log2('list_users reply', reply);
 
     return {

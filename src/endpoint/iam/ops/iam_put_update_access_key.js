@@ -14,7 +14,7 @@ async function update_access_key(req, res) {
         user_name: req.body.user_name,
     };
     dbg.log1('IAM UPDATE ACCESS KEY', params);
-    await req.account_sdk.update_access_key(params);
+    await req.account_sdk.update_access_key(params, req.account_sdk);
 
     return {
         UpdateAccessKeyResponse: {

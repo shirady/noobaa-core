@@ -312,7 +312,10 @@ function create_init_request_sdk(rpc, internal_rpc_client, object_io) {
         req.func_sdk = new FuncSDK(rpc_client);
         req.sts_sdk = new StsSDK(rpc_client, internal_rpc_client);
         // this flow was not checked (assumed that init_request_sdk was passed) in account_sdk
-        req.account_sdk = new AccountSDK(rpc_client, internal_rpc_client);
+        req.account_sdk = new AccountSDK({
+            rpc_client,
+            internal_rpc_client
+        });
         req.object_sdk = new ObjectSDK({
             rpc_client,
             internal_rpc_client,

@@ -13,7 +13,7 @@ async function delete_user(req, res) {
         username: req.body.user_name,
     };
     dbg.log1('IAM DELETE USER', params);
-    await req.account_sdk.delete_user(params);
+    await req.account_sdk.delete_user(params, req.account_sdk);
 
     return {
         DeleteUserResponse: {

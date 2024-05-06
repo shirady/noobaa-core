@@ -42,6 +42,7 @@ const json_utils = require('../util/json_utils');
 //const { RPC_BUFFERS } = require('../rpc');
 const pkg = require('../../package.json');
 const AccountSDK = require('../sdk/account_sdk');
+const AccountSpaceFS = require('../sdk/accountspace_fs');
 const NoobaaEvent = require('../manage_nsfs/manage_nsfs_events_utils').NoobaaEvent;
 
 const HELP = `
@@ -214,15 +215,19 @@ class NsfsObjectSDK extends ObjectSDK {
 class NsfsAccountSDK extends AccountSDK {
     constructor(fs_root, fs_config, account, config_root) {
         let bucketspace;
+        let accountspace;
         if (config_root) {
             bucketspace = new BucketSpaceFS({ config_root });
+            accountspace = new AccountSpaceFS({ config_root });
         } else {
             bucketspace = new BucketSpaceSimpleFS({ fs_root });
+            accountspace = new AccountSpaceFS({ fs_root });
         }
         super({
             rpc_client: null,
             internal_rpc_client: null,
             bucketspace: bucketspace,
+            accountspace: accountspace,
         });
         this.nsfs_config_root = nsfs_config_root;
         this.nsfs_fs_root = fs_root;

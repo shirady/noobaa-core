@@ -14,15 +14,16 @@ class AccountSDK {
      *      rpc_client: nb.APIClient;
      *      internal_rpc_client: nb.APIClient;
      *      bucketspace?: nb.BucketSpace;
+     *      accountspace?: nb.AccountSpace;
      * }} args
      */
-    constructor({ rpc_client, internal_rpc_client, bucketspace }) {
+    constructor({ rpc_client, internal_rpc_client, bucketspace, accountspace }) {
         this.rpc_client = rpc_client;
         this.internal_rpc_client = internal_rpc_client;
         this.requesting_account = undefined;
         this.auth_token = undefined;
         this.bucketspace = bucketspace || new BucketSpaceNB({ rpc_client, internal_rpc_client });
-        this.accountspace = new AccountSpaceFS({ });
+        this.accountspace = accountspace || new AccountSpaceFS({ });
     }
 
     set_auth_token(auth_token) {

@@ -14,7 +14,7 @@ async function get_access_key_last_used(req, res) {
         access_key: req.body.access_key_id,
     };
     dbg.log1('IAM GET ACCESS KEY LAST USED', params);
-    const reply = await req.account_sdk.get_access_key_last_used(params);
+    const reply = await req.account_sdk.get_access_key_last_used(params, req.account_sdk);
     dbg.log2('get_access_key_last_used reply', reply);
 
     return {

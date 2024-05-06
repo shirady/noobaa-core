@@ -14,7 +14,7 @@ async function create_user(req, res) {
         username: req.body.user_name,
     };
     dbg.log1('IAM CREATE USER', params);
-    const reply = await req.account_sdk.create_user(params);
+    const reply = await req.account_sdk.create_user(params, req.account_sdk);
     dbg.log2('create_user reply', reply);
 
     return {

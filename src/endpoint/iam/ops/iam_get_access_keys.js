@@ -15,7 +15,7 @@ async function list_access_keys(req, res) {
         username: req.body.user_name,
     };
     dbg.log1('IAM LIST ACCESS KEYS', params);
-    const reply = await req.account_sdk.list_access_keys(params);
+    const reply = await req.account_sdk.list_access_keys(params, req.account_sdk);
     dbg.log2('list_access_keys reply', reply);
 
     // GAP - I don't see the UserName and IsTruncated in the reply xml

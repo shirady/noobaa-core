@@ -1,6 +1,11 @@
 /* Copyright (C) 2024 NooBaa */
 'use strict';
+
+const _ = require('lodash');
+const path = require('path');
+const config = require('../../config');
 const dbg = require('../util/debug_module')(__filename);
+const { CONFIG_SUBDIRS } = require('../manage_nsfs/manage_nsfs_constants');
 const { create_arn, AWS_EMPTY_PATH } = require('../endpoint/iam/iam_utils');
 
 const access_key_status_enum = {
@@ -65,14 +70,30 @@ const dummy_service_name = 's3';
  */
 class AccountSpaceFS {
     /**
-     * @param {{
-    *  fs_backend?: string;
-    *  stats?: import('./endpoint_stats_collector').EndpointStatsCollector;
+    * @param {{
+    *      config_root?: string;
+    *      fs_root?: string;
+    *      fs_backend?: string;
+    *      stats?: import('./endpoint_stats_collector').EndpointStatsCollector;
     * }} params
     */
-    constructor({fs_backend, stats}) {
+    constructor({config_root, fs_root, fs_backend, stats}) {
+        this.config_root = config_root;
+        this.fs_root = _.isUndefined(fs_root) ? '' : fs_root;
         this.fs_backend = fs_backend;
         this.stats = stats;
+
+        this.accounts_dir = path.join(config_root, CONFIG_SUBDIRS.ACCOUNTS);
+        this.access_keys_dir = path.join(config_root, CONFIG_SUBDIRS.ACCESS_KEYS);
+        this.bucket_schema_dir = path.join(config_root, CONFIG_SUBDIRS.BUCKETS);
+        this.config_root = config_root;
+        this.fs_context = {
+            uid: process.getuid(),
+            gid: process.getgid(),
+            warn_threshold_ms: config.NSFS_WARN_THRESHOLD_MS,
+            fs_backend: config.NSFS_NC_CONFIG_DIR_BACKEND
+            //fs_context.report_fs_stats = this.stats.update_fs_stats;
+        };
     }
 
     ////////////
@@ -105,13 +126,13 @@ class AccountSpaceFS {
 
     async update_user(params, account_sdk) {
         dbg.log1('update_user', params);
-        const path = params.new_path ? params.new_path : dummy_user1.path;
+        const path_friendly = params.new_path ? params.new_path : dummy_user1.path;
         const username = params.new_username ? params.new_username : params.username;
         return {
-            path: path,
+            path: path_friendly,
             username: username,
             user_id: dummy_user1.user_id,
-            arn: create_arn(dummy_account_id, username, path),
+            arn: create_arn(dummy_account_id, username, path_friendly),
         };
     }
 
@@ -203,7 +224,6 @@ class AccountSpaceFS {
         ];
         return { members, is_truncated, username};
     }
-
 }
 
 //////////////////////

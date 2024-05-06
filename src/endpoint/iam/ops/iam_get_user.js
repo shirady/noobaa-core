@@ -13,7 +13,7 @@ async function get_user(req, res) {
         username: req.body.user_name,
     };
     dbg.log1('IAM GET USER', params);
-    const reply = await req.account_sdk.get_user(params);
+    const reply = await req.account_sdk.get_user(params, req.account_sdk);
     dbg.log2('get_user reply', reply);
 
     return {
