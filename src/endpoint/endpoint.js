@@ -25,7 +25,6 @@ const lambda_rest = require('./lambda/lambda_rest');
 const endpoint_utils = require('./endpoint_utils');
 const FuncSDK = require('../sdk/func_sdk');
 const StsSDK = require('../sdk/sts_sdk');
-const AccountSDK = require('../sdk/account_sdk');
 const ObjectIO = require('../sdk/object_io');
 const ObjectSDK = require('../sdk/object_sdk');
 const xml_utils = require('../util/xml_utils');
@@ -311,11 +310,6 @@ function create_init_request_sdk(rpc, internal_rpc_client, object_io) {
         const rpc_client = rpc.new_client();
         req.func_sdk = new FuncSDK(rpc_client);
         req.sts_sdk = new StsSDK(rpc_client, internal_rpc_client);
-        // this flow was not checked (assumed that init_request_sdk was passed) in account_sdk
-        req.account_sdk = new AccountSDK({
-            rpc_client,
-            internal_rpc_client
-        });
         req.object_sdk = new ObjectSDK({
             rpc_client,
             internal_rpc_client,

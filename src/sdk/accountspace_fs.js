@@ -95,12 +95,11 @@ class AccountSpaceFS {
         this.accounts_dir = path.join(config_root, CONFIG_SUBDIRS.ACCOUNTS);
         this.access_keys_dir = path.join(config_root, CONFIG_SUBDIRS.ACCESS_KEYS);
         this.bucket_schema_dir = path.join(config_root, CONFIG_SUBDIRS.BUCKETS);
-        this.config_root = config_root;
         this.fs_context = {
             uid: process.getuid(),
             gid: process.getgid(),
             warn_threshold_ms: config.NSFS_WARN_THRESHOLD_MS,
-            fs_backend: config.NSFS_NC_CONFIG_DIR_BACKEND
+            fs_backend: fs_backend || config.NSFS_NC_CONFIG_DIR_BACKEND
             //fs_context.report_fs_stats = this.stats.update_fs_stats;
         };
     }

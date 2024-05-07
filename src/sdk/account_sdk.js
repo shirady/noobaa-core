@@ -2,6 +2,7 @@
 'use strict';
 
 const dbg = require('../util/debug_module')(__filename);
+const config = require('../../config');
 const { RpcError } = require('../rpc');
 const signature_utils = require('../util/signature_utils');
 const { account_cache, dn_cache } = require('./object_sdk');
@@ -23,7 +24,8 @@ class AccountSDK {
         this.requesting_account = undefined;
         this.auth_token = undefined;
         this.bucketspace = bucketspace || new BucketSpaceNB({ rpc_client, internal_rpc_client });
-        this.accountspace = accountspace || new AccountSpaceFS({ });
+        const config_root = config.NSFS_NC_DEFAULT_CONF_DIR;
+        this.accountspace = accountspace || new AccountSpaceFS({ config_root });
     }
 
     set_auth_token(auth_token) {
