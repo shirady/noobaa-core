@@ -2,6 +2,7 @@
 'use strict';
 const _ = require('lodash');
 const dbg = require('../../../util/debug_module')(__filename);
+const iam_utils = require('../iam_utils');
 
 /**
  * https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateAccessKey.html
@@ -21,6 +22,7 @@ async function create_access_key(req, res) {
                 AccessKey: {
                     UserName: reply.username,
                     AccessKeyId: reply.access_key,
+                    CreateDate: iam_utils.format_iam_xml_date(reply.create_date),
                     Status: reply.status,
                     SecretAccessKey: reply.secret_key,
                 }
