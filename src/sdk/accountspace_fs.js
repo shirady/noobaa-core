@@ -451,7 +451,7 @@ class AccountSpaceFS {
             owner: requesting_account._id,
             creator: requesting_account._id,
             path: params.path,
-            master_key_id: requesting_account.master_key_id, // it is per system, we can copy from the account
+            master_key_id: requesting_account.master_key_id, // temp copy (it is required, but should be per access key)
             allow_bucket_creation: requesting_account.allow_bucket_creation,
             force_md5_etag: requesting_account.force_md5_etag,
             access_keys: [],
@@ -498,7 +498,7 @@ class AccountSpaceFS {
  * (If it is not included, it defaults to the user making the request).
  * If the username is passed in the request than it is this user
  * else (undefined) is is the requester
- * @param {string} username
+ * @param {string|undefined} username
  */
 function get_user_details(username) {
     const res = {
