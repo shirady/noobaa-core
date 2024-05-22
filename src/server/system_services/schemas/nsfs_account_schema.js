@@ -60,6 +60,21 @@ module.exports = {
                     encrypted_secret_key: {
                         type: 'string',
                     },
+                    creation_date: {
+                        type: 'string',
+                    },
+                    status: {
+                        type: 'string',
+                        enum: ['Active', 'Inactive']
+                    },
+                    creator_identity: {
+                        type: 'string',
+                        enum: ['ROOT_ACCOUNT', 'USER']
+                    },
+                    // temp - put here for multiple access keys (need to discuss)
+                    master_key_id: {
+                        objectid: true
+                    }
                 }
             }
         },

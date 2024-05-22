@@ -14,13 +14,22 @@ This will be the argument for:
   - `path` in the buckets commands `/tmp/nsfs_root1/my-bucket` (that we will use in bucket commands).
 2. Create the root user account with the CLI:
 `sudo node src/cmd/manage_nsfs account add --name <name>> --new_buckets_path /tmp/nsfs_root1 --access_key <access-key> --secret_key <secret-key> --uid <uid> --gid <gid>`.
-2. Start the NSFS server (using debug mode and the port for IAM): `sudo node src/cmd/nsfs --debug 5 --https_port_iam 7005`
+3. Start the NSFS server (using debug mode and the port for IAM): `sudo node src/cmd/nsfs --debug 5 --https_port_iam 7005`
 Note: before starting the server please add this line: `process.env.NOOBAA_LOG_LEVEL = 'nsfs';` in the endpoint.js (before the condition `if (process.env.NOOBAA_LOG_LEVEL) {`)
 4. Create the alias for IAM service: 
 `alias s3-nc-user-1-iam='AWS_ACCESS_KEY_ID=<acess-key> AWS_SECRET_ACCESS_KEY=<secret-key> aws --no-verify-ssl --endpoint-url https://localhost:7005'`.
-11. Use AWS CLI to send requests to the IAM service, for example:
+5. Use AWS CLI to send requests to the IAM service, for example:
  `s3-nc-user-1-iam iam create-user --user-name Bob --path /division_abc/subdivision_xyz/`
  `s3-nc-user-1-iam iam get-user --user-name Bob`
  `s3-nc-user-1-iam iam update-user --user-name Bob --new-path /division_abc/subdivision_abc/`
  `s3-nc-user-1-iam iam delete-user --user-name Bob`
  `s3-nc-user-1-iam iam list-users`
+
+ `s3-nc-user-1-iam iam create-access-key --user-name Bob`
+ `s3-nc-user-1-iam iam update-access-key --access-key-id <access-key> --user-name Bob --status Inactive`
+ `s3-nc-user-1-iam iam delete-access-key --access-key-id <access-key> --user-name Bob`
+ `s3-nc-user-1-iam iam list-access-keys --user-name Bob`
+
+Create the alias for IAM service for the user that was created (with its access keys):
+`alias s3-nc-user-1-iam-regular='AWS_ACCESS_KEY_ID=<acess-key> AWS_SECRET_ACCESS_KEY=<secret-key> aws --no-verify-ssl --endpoint-url https://localhost:7005'`.
+`s3-nc-user-1-iam-regular iam get-access-key-last-used --access-key-id <access-key>`

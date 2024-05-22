@@ -10,67 +10,32 @@ const nb_native = require('../util/nb_native');
 const native_fs_utils = require('../util/native_fs_utils');
 const { CONFIG_SUBDIRS } = require('../manage_nsfs/manage_nsfs_constants');
 const { create_arn, IAM_DEFAULT_PATH, get_action_message_title,
-    check_iam_path_was_set } = require('../endpoint/iam/iam_utils');
+    check_iam_path_was_set, MAX_NUMBER_OF_ACCESS_KEYS,
+    access_key_status_enum, identity_enum } = require('../endpoint/iam/iam_utils');
 const { generate_id } = require('../manage_nsfs/manage_nsfs_cli_utils');
 const nsfs_schema_utils = require('../manage_nsfs/nsfs_schema_utils');
 const IamError = require('../endpoint/iam/iam_errors').IamError;
-
-const access_key_status_enum = {
-    ACTIVE: 'Active',
-    INACTIVE: 'Inactive',
-};
+const cloud_utils = require('../util/cloud_utils');
+const SensitiveString = require('../util/sensitive_string');
+const { get_symlink_config_file_path, get_config_file_path, get_config_data } = require('../manage_nsfs/manage_nsfs_cli_utils');
+const nc_mkm = require('../manage_nsfs/nc_master_key_manager').get_instance();
+const { account_cache } = require('./object_sdk');
 
 const entity_enum = {
     USER: 'USER',
     ACCESS_KEY: 'ACCESS_KEY',
 };
 
+// TODO - rename (the typo), move and reuse in manage_nsfs
+const acounts_dir_relative_path = '../accounts/';
+
 ////////////////////
 // MOCK VARIABLES //
 ////////////////////
 /* mock variables (until we implement the actual code), based on the example in AWS IAM API docs*/
-
-// account_id should be taken from the root user (account._id in the config file);
-const dummy_account_id = '12345678012'; // for the example
-// user_id should be taken from config file of the new created user user (account._id in the config file);
-const dummy_user_id = '12345678013'; // for the example
-// user should be from the the config file and the details (this for the example)
-const dummy_iam_path = '/division_abc/subdivision_xyz/';
-const dummy_username1 = 'Bob';
-const dummy_username2 = 'Robert';
-const dummy_username_requester = 'Alice';
-const dummy_user1 = {
-    username: dummy_username1,
-    user_id: dummy_user_id,
-    iam_path: dummy_iam_path,
-};
-// the requester at current implementation is the root user (this is for the example)
-const dummy_requester = {
-    username: dummy_username_requester,
-    user_id: dummy_account_id,
-    iam_path: IAM_DEFAULT_PATH,
-};
-const MS_PER_MINUTE = 60 * 1000;
-const dummy_access_key1 = {
-    username: dummy_username1,
-    access_key: 'AKIAIOSFODNN7EXAMPLE',
-    status: access_key_status_enum.ACTIVE,
-    secret_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLE',
-};
-const dummy_access_key2 = {
-    username: dummy_username2,
-    access_key: 'CMCTDRBIDNN9EXAMPLE',
-    status: access_key_status_enum.ACTIVE,
-    secret_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLE',
-};
-const dummy_requester_access_key = {
-    username: dummy_username_requester,
-    access_key: 'BLYDNFMRUCIS8EXAMPLE',
-    status: access_key_status_enum.ACTIVE,
-    secret_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLE',
-};
 const dummy_region = 'us-west-2';
 const dummy_service_name = 's3';
+const MS_PER_MINUTE = 60 * 1000;
 
 /**
  * @implements {nb.AccountSpace}
@@ -128,20 +93,23 @@ class AccountSpaceFS {
     }
 
     // 1 - check that the requesting account is a root user account
-    // 2 - check that the user account config file exists
-    // 3 - read the account config file
-    // 4 - check that the user to get is not a root account
-    // 5 - check that the user account to get is owned by the root account
+    // 2 - find the username (flag username is not required)
+    // 3 - check that the user account config file exists
+    // 4 - read the account config file
+    // 5 - check that the user to get is not a root account
+    // 6 - check that the user account to get is owned by the root account
     async get_user(params, account_sdk) {
         const action = 'get_user';
         dbg.log1(`AccountSpaceFS.${action}`, params, account_sdk);
         try {
             const requesting_account = account_sdk.requesting_account;
+            const { requester } = this._check_root_account_or_user(requesting_account, params.username);
+            const username = params.username ?? requester.name; // username is not required
             // GAP - we do not have the user iam_path at this point (error message)
             this._check_if_requesting_account_is_root_account(action, requesting_account,
-                { username: params.username });
-            const account_config_path = this._get_account_config_path(params.username);
-            await this._check_if_account_config_file_exists(action, params.username, account_config_path);
+                { username: username });
+            const account_config_path = this._get_account_config_path(username);
+            await this._check_if_account_config_file_exists(action, username, account_config_path);
             const account_to_get = await native_fs_utils.read_file(this.fs_context, account_config_path);
             this._check_if_requested_account_is_root_account(action, requesting_account, account_to_get, params);
             this._check_if_user_is_owned_by_root_account(action, requesting_account, account_to_get);
@@ -168,6 +136,7 @@ class AccountSpaceFS {
     //   6.1 - check if username already exists (global scope - all config files names)
     //   6.2 - create the new config file (with the new name same data) and delete the the existing config file
     // 7 - (else not an update of username) update the config file
+    // 8 - remove the access_keys from the account_cache
     async update_user(params, account_sdk) {
         const action = 'update_user';
         try {
@@ -194,6 +163,7 @@ class AccountSpaceFS {
                 await native_fs_utils.update_config_file(this.fs_context, this.accounts_dir,
                     account_config_path, account_to_update_string);
             }
+            this._clean_account_cache(account_to_update);
             return {
                 iam_path: account_to_update.iam_path || IAM_DEFAULT_PATH,
                 username: account_to_update.name,
@@ -259,58 +229,208 @@ class AccountSpaceFS {
     // ACCESS KEY //
     ////////////////
 
+    // 1 - check that the requesting account is a root user account or that the username is same as the requester
+    // 2 - check that the requested account config file exists
+    // 3 - read the account config file
+    // 4 - if the requester is root user account - check that it owns the account
+    //     check that the access key to create is on a user is owned by the the root account
+    // 5 - check that the number of access key array
+    // 6 - generate access keys
+    // 7 - encryption (GAP - need this functionality from nc_master_key_manager)
+    // 8 - validate account
+    // 9 - update account config file
+    // 10 - link new access key file to config file
     async create_access_key(params, account_sdk) {
-        const { dummy_access_key } = get_user_details(params.username);
-        dbg.log1('create_access_key', params);
-        return {
-            username: dummy_access_key.username,
-            access_key: dummy_access_key.access_key,
-            status: dummy_access_key.status,
-            secret_key: dummy_access_key.secret_key,
-            create_date: new Date(),
-        };
+        const action = 'create_access_key';
+        dbg.log1(`AccountSpaceFS.${action}`, params, account_sdk);
+        try {
+            const requesting_account = account_sdk.requesting_account;
+            const requester = this._check_if_requesting_account_is_root_account_or_user_om_himself(action,
+                requesting_account, params.username);
+            const name_for_access_key = params.username ?? requester.name;
+            const requested_account_config_path = this._get_account_config_path(name_for_access_key);
+            await this._check_if_account_config_file_exists(action, name_for_access_key, requested_account_config_path);
+            const requested_account = await native_fs_utils.read_file(this.fs_context, requested_account_config_path);
+            if (requester.identity === identity_enum.ROOT_ACCOUNT) {
+                this._check_if_user_is_owned_by_root_account(action, requesting_account, requested_account);
+            }
+            this._check_number_of_access_key_array(action, requested_account);
+            const index_for_access_key = this._get_available_index_for_access_key(requested_account.access_keys);
+            const { generated_access_key, generated_secret_key } = this._generate_access_key();
+            // encryption GAP - need this functionality from nc_master_key_manager)
+            const { encrypted_secret_key, master_key_id } = await this._encrypt_secret_key(generated_secret_key);
+            requested_account.access_keys[index_for_access_key] = {
+                access_key: generated_access_key,
+                encrypted_secret_key: encrypted_secret_key,
+                creation_date: new Date().toISOString(),
+                status: access_key_status_enum.ACTIVE,
+                creator_identity: requester.identity,
+                master_key_id: master_key_id, // TODO - move master_key_id to account only - would lead changes in encrypt_access_keys
+            };
+            requested_account.master_key_id = master_key_id;
+            const account_to_create_access_keys_string = JSON.stringify(requested_account);
+            nsfs_schema_utils.validate_account_schema(JSON.parse(account_to_create_access_keys_string));
+            await native_fs_utils.update_config_file(this.fs_context, this.accounts_dir,
+                requested_account_config_path, account_to_create_access_keys_string);
+            const account_config_relative_path = get_config_file_path(acounts_dir_relative_path, requested_account.name);
+            const new_access_key_symlink_config_path = get_symlink_config_file_path(this.access_keys_dir, generated_access_key);
+            await nb_native().fs.symlink(this.fs_context, account_config_relative_path, new_access_key_symlink_config_path);
+            return {
+                username: requested_account.name,
+                access_key: requested_account.access_keys[index_for_access_key].access_key,
+                create_date: requested_account.access_keys[index_for_access_key].creation_date,
+                status: requested_account.access_keys[index_for_access_key].status,
+                secret_key: generated_secret_key,
+            };
+        } catch (err) {
+            dbg.error(`AccountSpaceFS.${action} error`, err);
+            throw this._translate_error_codes(err, entity_enum.ACCESS_KEY);
+        }
     }
 
+    // 1 - read the symlink file that we get in params (access key id)
+    // 2 - check if the access key that was received in param exists
+    // 3 - read the config file
+    // 4 - check that config file is on the same root account
+    // General note: only serves the requester (no flag --user-name is passed)
     async get_access_key_last_used(params, account_sdk) {
-        dbg.log1('get_access_key_last_used', params);
-        return {
-            region: dummy_region,
-            last_used_date: new Date(Date.now() - 30 * MS_PER_MINUTE),
-            service_name: dummy_service_name,
-            username: dummy_user1.username,
-        };
+        const action = 'get_access_key_last_used';
+        dbg.log1(`AccountSpaceFS.${action}`, params, account_sdk);
+        try {
+            const requesting_account = account_sdk.requesting_account;
+            const access_key_id = params.access_key;
+            const requested_account_path = get_symlink_config_file_path(this.access_keys_dir, access_key_id);
+            await this._check_if_account_exists_by_access_key_symlink(action, requesting_account, requested_account_path, access_key_id);
+            const requested_account = await get_config_data(this.fs_root, requested_account_path, true);
+            this._check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key_id);
+            return {
+                region: dummy_region, // GAP
+                last_used_date: new Date(Date.now() - 30 * MS_PER_MINUTE), // GAP
+                service_name: dummy_service_name, // GAP
+                username: requested_account.name,
+            };
+        } catch (err) {
+            dbg.error('AccountSpaceFS.get_access_key_last_used error', err);
+            throw this._translate_error_codes(err, entity_enum.ACCESS_KEY);
+        }
     }
 
+    // 1 - check that the requesting account is a root user account or that the username is same as the requester
+    // 2 - check if the access key that was received in param exists
+    // 3 - read the config file
+    // 4 - check that config file is on the same root account
+    // 5 - check if we need to change the status (if not - return)
+    // 6 - update the access key status (Active/Inactive) + decrypt and encrypt
+    //     GAP - need this functionality from nc_master_key_manager
+    // 7 - validate account
+    // 8 - update account config file
+    // 9 - remove the access_key from the account_cache
     async update_access_key(params, account_sdk) {
-        dbg.log1('update_access_key', params);
-        // nothing to do at this point
+        const action = 'update_access_key';
+        dbg.log1(`AccountSpaceFS.${action}`, params, account_sdk);
+        try {
+            const requesting_account = account_sdk.requesting_account;
+            const access_key_id = params.access_key;
+            const requester = this._check_if_requesting_account_is_root_account_or_user_om_himself(action,
+                requesting_account, params.username);
+            const requested_account_path = get_symlink_config_file_path(this.access_keys_dir, params.access_key);
+            await this._check_if_account_exists_by_access_key_symlink(action, requesting_account, requested_account_path, access_key_id);
+            const requested_account = await get_config_data(this.fs_root, requested_account_path, true);
+            this._check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key_id);
+            const { index_for_access_key, access_key } = this._get_access_key(requested_account, params.access_key);
+            if (access_key.status === params.status) {
+                dbg.log1(`AccountSpaceFS.${action} status was not change, not updating the account config file`);
+                return;
+            }
+            // encryption GAP - need this functionality from nc_master_key_manager)
+            const { secret_key } = await this._decrypt_encrypted_secret_key(access_key.encrypted_secret_key);
+            const { encrypted_secret_key, master_key_id } = await this._encrypt_secret_key(secret_key);
+            requested_account.access_keys[index_for_access_key].encrypted_secret_key = encrypted_secret_key;
+            requested_account.access_keys[index_for_access_key].status = params.status;
+            requested_account.access_keys[index_for_access_key].master_key_id = master_key_id; // temp here
+            requested_account.master_key_id = master_key_id;
+            const account_string = JSON.stringify(requested_account);
+            nsfs_schema_utils.validate_account_schema(JSON.parse(account_string));
+            const name_for_access_key = params.username ?? requester.name;
+            const requested_account_config_path = this._get_account_config_path(name_for_access_key);
+            await native_fs_utils.update_config_file(this.fs_context, this.accounts_dir,
+                requested_account_config_path, account_string);
+            this._clean_account_cache(requested_account);
+        } catch (err) {
+            dbg.error(`AccountSpaceFS.${action} error`, err);
+            throw this._translate_error_codes(err, entity_enum.ACCESS_KEY);
+        }
     }
 
+    // 1 - check that the requesting account is a root user account or that the username is same as the requester
+    // 2 - check if the access key that was received in param exists
+    // 3 - read the config file
+    // 4 - check that config file is on the same root account
+    // 5 - delete the access key object (access key, secret key, status, etc.) from the array
+    // 6 - encryption (secret key) - only because we want the most updated master_key id
+    //     GAP - after moving to master_key_id only in account level
+    // 7 - validate account
+    // 8 - update account config file
+    // 9 -  unlink the symbolic link
+    // 10 - remove the access_key from the account_cache
     async delete_access_key(params, account_sdk) {
-        dbg.log1('delete_access_key', params);
-        // nothing to do at this point
+        const action = 'delete_access_key';
+        dbg.log1(`AccountSpaceFS.${action}`, params, account_sdk);
+        try {
+            const requesting_account = account_sdk.requesting_account;
+            const access_key_id = params.access_key;
+            const requester = this._check_if_requesting_account_is_root_account_or_user_om_himself(action,
+                requesting_account, params.username);
+            const requested_account_path = get_symlink_config_file_path(this.access_keys_dir, access_key_id);
+            await this._check_if_account_exists_by_access_key_symlink(action, requesting_account, requested_account_path, access_key_id);
+            const requested_account = await get_config_data(this.fs_root, requested_account_path, true);
+            this._check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key_id);
+            const { index_for_access_key } = this._get_access_key(requested_account, access_key_id);
+            requested_account.access_keys.splice(index_for_access_key, 1);
+            // 6 - encryption (secret key) - only because we want the most updated master_key id
+            //     GAP - after moving to master_key_id only in account level
+            const account_string = JSON.stringify(requested_account);
+            nsfs_schema_utils.validate_account_schema(JSON.parse(account_string));
+            const name_for_access_key = params.username ?? requester.name;
+            const account_config_path = this._get_account_config_path(name_for_access_key);
+            await native_fs_utils.update_config_file(this.fs_context, this.accounts_dir,
+                account_config_path, account_string);
+            await nb_native().fs.unlink(this.fs_context, requested_account_path);
+            this._clean_account_cache(requested_account);
+        } catch (err) {
+            dbg.error(`AccountSpaceFS.${action} error`, err);
+            throw this._translate_error_codes(err, entity_enum.ACCESS_KEY);
+        }
     }
 
+    // 1 - check that the requesting account is a root user account or that the username is same as the requester
+    // 2 - check that the user account config file exists
+    // 3 - read the account config file
+    // 4 - check that config file is on the same root account
+    // 5 - list the access-keys
+    // 6 - members should be sorted by access_key (a to z)
+    //     GAP - this is not written in the docs, only inferred (maybe it sorted is by create_date?)
     async list_access_keys(params, account_sdk) {
-        dbg.log1('list_access_keys', params);
-        const is_truncated = false;
-        const { dummy_user } = get_user_details(params.username);
-        const username = dummy_user.username;
-        // iam_path_prefix is not supported in the example
-        const members = [{
-                username: dummy_access_key1.username,
-                access_key: dummy_access_key1.access_key,
-                status: dummy_access_key1.status,
-                create_date: new Date(Date.now() - 30 * MS_PER_MINUTE),
-            },
-            {
-                username: dummy_access_key2.username,
-                access_key: dummy_access_key2.access_key,
-                status: dummy_access_key2.status,
-                create_date: new Date(Date.now() - 30 * MS_PER_MINUTE),
-            },
-        ];
-        return { members, is_truncated, username };
+        const action = 'list_access_keys';
+        dbg.log1(`AccountSpaceFS.${action}`, params, account_sdk);
+        try {
+            const requesting_account = account_sdk.requesting_account;
+            const access_key_id = params.access_key;
+            const requester = this._check_if_requesting_account_is_root_account_or_user_om_himself(action,
+                requesting_account, params.username);
+            const name_for_access_key = params.username ?? requester.name;
+            const requested_account_config_path = this._get_account_config_path(name_for_access_key);
+            await this._check_if_account_config_file_exists(action, name_for_access_key, requested_account_config_path);
+            const requested_account = await native_fs_utils.read_file(this.fs_context, requested_account_config_path);
+            this._check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key_id);
+            const is_truncated = false; // path_prefix is not supported
+            let members = this._list_access_keys_from_account(requested_account);
+            members = members.sort((a, b) => a.access_key.localeCompare(b.access_key));
+            return { members, is_truncated, username: name_for_access_key };
+        } catch (err) {
+            dbg.error(`AccountSpaceFS.${action} error`, err);
+            throw this._translate_error_codes(err, entity_enum.ACCESS_KEY);
+        }
     }
 
     ////////////////////////
@@ -374,14 +494,25 @@ class AccountSpaceFS {
         return root_account._id === user_account.owner;
     }
 
-    _throw_access_denied_error(action, requesting_account, user_details = {}) {
-        const arn_for_requesting_account = create_arn(requesting_account._id,
-            requesting_account.name.unwrap(), requesting_account.iam_path);
-        const arn_for_user = create_arn(requesting_account._id, user_details.username, user_details.iam_path);
+    _throw_access_denied_error(action, requesting_account, details = {}, entity = entity_enum.USER) {
         const full_action_name = get_action_message_title(action);
-        const message_with_details = `User: ${arn_for_requesting_account} is not authorized to perform:` +
-            `${full_action_name} on resource: ` +
-            `${arn_for_user} because no identity-based policy allows the ${full_action_name} action`;
+        const arn_for_requesting_account = create_arn(requesting_account._id,
+            requesting_account.name.unwrap(), requesting_account.path);
+        const basic_message = `User: ${arn_for_requesting_account} is not authorized to perform:` +
+        `${full_action_name} on resource: `;
+        let message_with_details;
+        if (entity === entity_enum.USER) {
+            let user_message;
+            if (action === 'list_access_keys') {
+                user_message = `user ${requesting_account.name.unwrap()}`;
+            } else {
+                user_message = create_arn(requesting_account._id, details.username, details.path);
+            }
+            message_with_details = basic_message +
+            `${user_message} because no identity-based policy allows the ${full_action_name} action`;
+        } else { // entity_enum.ACCESS_KEY
+            message_with_details = basic_message + `access key ${details.access_key}`;
+        }
         const { code, http_code, type } = IamError.AccessDenied;
         throw new IamError({ code, message: message_with_details, http_code, type });
     }
@@ -485,7 +616,6 @@ class AccountSpaceFS {
         }
     }
 
-
     _check_if_user_does_not_have_access_keys_before_deletion(action, account_to_delete) {
         const is_access_keys_removed = account_to_delete.access_keys.length === 0;
         if (!is_access_keys_removed) {
@@ -510,30 +640,148 @@ class AccountSpaceFS {
         await native_fs_utils.delete_config_file(this.fs_context, this.accounts_dir,
             account_config_path);
     }
-}
 
-//////////////////////
-// HELPER FUNCTIONS //
-//////////////////////
-
-/**
- * get_user_details will return the relevant details of the user since username is not required in some requests
- * (If it is not included, it defaults to the user making the request).
- * If the username is passed in the request than it is this user
- * else (undefined) is is the requester
- * @param {string|undefined} username
- */
-function get_user_details(username) {
-    const res = {
-        dummy_user: dummy_requester,
-        dummy_access_key: dummy_requester_access_key,
-    };
-    const is_user_request = Boolean(username); // can be user request or root user request
-    if (is_user_request) {
-        res.dummy_user = dummy_user1;
-        res.dummy_access_key = dummy_access_key1;
+    _check_root_account_or_user(requesting_account, username) {
+        let is_root_account_or_user_on_itself = false;
+        let requester = {};
+        const requesting_account_name = requesting_account.name instanceof SensitiveString ?
+            requesting_account.name.unwrap() : requesting_account.name;
+        // root account (on user or himself)
+        if (this._check_root_account(requesting_account)) {
+            requester = {
+                name: requesting_account_name,
+                identity: identity_enum.ROOT_ACCOUNT
+            };
+            is_root_account_or_user_on_itself = true;
+            return { is_root_account_or_user_on_itself, requester};
+        }
+        // user (on himself) - username can be undefined
+        if (_.isUndefined(username) || requesting_account_name === username) {
+            const username_to_use = username ?? requesting_account_name;
+            requester = {
+                name: username_to_use,
+                identity: identity_enum.USER
+            };
+            is_root_account_or_user_on_itself = true;
+            return { is_root_account_or_user_on_itself, requester };
+        }
+        return { is_root_account_or_user_on_itself, requester };
     }
-    return res;
+
+    // TODO reuse set_access_keys from manage_nsfs
+    _generate_access_key() {
+        let generated_access_key;
+        let generated_secret_key;
+        ({ access_key: generated_access_key, secret_key: generated_secret_key } = cloud_utils.generate_access_keys());
+        generated_access_key = generated_access_key.unwrap();
+        generated_secret_key = generated_secret_key.unwrap();
+        return { generated_access_key, generated_secret_key};
+    }
+
+    _get_available_index_for_access_key(access_keys) {
+        // empty array or array with 1 access keys in index 1
+        if (access_keys.length === 0 || _.isUndefined(access_keys[0])) {
+            return 0;
+        }
+        return 1;
+    }
+
+    // TODO move and reuse from nc_mkm
+    async _encrypt_secret_key(secret_key) {
+        await nc_mkm.init();
+        const master_key_id = nc_mkm.active_master_key.id;
+        const encrypted_secret_key = await nc_mkm.encrypt(secret_key, master_key_id);
+        return { encrypted_secret_key, master_key_id };
+    }
+
+    // TODO move and reuse from nc_mkm
+    async _decrypt_encrypted_secret_key(encrypted_secret_key) {
+        await nc_mkm.init();
+        const master_key_id = nc_mkm.active_master_key.id;
+        const secret_key = await nc_mkm.decrypt(encrypted_secret_key, master_key_id);
+        return { secret_key, master_key_id };
+    }
+
+    _check_specific_access_key_exists(access_keys, access_key_to_find) {
+        for (const access_key of access_keys) {
+            if (access_key_to_find === access_key) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    _get_access_key(account_config, access_key_to_find) {
+        const index = _.findIndex(account_config.access_keys, item => item.access_key === access_key_to_find);
+        return {
+            access_key: account_config.access_keys[index],
+            index_for_access_key: index,
+        };
+    }
+
+    _list_access_keys_from_account(account) {
+        const members = [];
+        for (const access_key of account.access_keys) {
+            const member = {
+                username: account.name,
+                access_key: access_key.access_key,
+                status: access_key.status ?? access_key_status_enum.ACTIVE,
+                create_date: access_key.creation_date ?? account.creation_date,
+            };
+            members.push(member);
+        }
+        return members;
+    }
+
+    _check_if_requesting_account_is_root_account_or_user_om_himself(action, requesting_account, username) {
+        const { is_root_account_or_user_on_itself, requester } = this._check_root_account_or_user(
+            requesting_account,
+            username
+        );
+        dbg.log1(`AccountSpaceFS.${action} requesting_account`, requesting_account,
+        'is_root_account_or_user_on_itself', is_root_account_or_user_on_itself);
+        if (!is_root_account_or_user_on_itself) {
+            dbg.error(`AccountSpaceFS.${action} requesting account is neither a root account ` +
+            `nor user requester on himself`,
+            requesting_account);
+            this._throw_access_denied_error(action, requesting_account, { username });
+        }
+        return requester;
+    }
+
+    _check_number_of_access_key_array(action, requested_account) {
+        if (requested_account.access_keys.length >= MAX_NUMBER_OF_ACCESS_KEYS) {
+            dbg.error(`AccountSpaceFS.${action} requested account is not owned by root account `,
+            requested_account);
+            const message_with_details = `Cannot exceed quota for AccessKeysPerUser: ${MAX_NUMBER_OF_ACCESS_KEYS}.`;
+            const { code, http_code, type } = IamError.LimitExceeded;
+            throw new IamError({ code, message: message_with_details, http_code, type });
+        }
+    }
+
+    async _check_if_account_exists_by_access_key_symlink(action, requesting_account, account_path, access_key) {
+        const is_user_account_exists = await native_fs_utils.is_path_exists(this.fs_context, account_path);
+        if (!is_user_account_exists) {
+            this._throw_access_denied_error(action, requesting_account, { access_key: access_key }, entity_enum.ACCESS_KEY);
+        }
+    }
+
+    _check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key) {
+        // 4 - check that config file is on the same root account
+        const root_account_id_requesting_account = requesting_account.owner || requesting_account._id; // if it is root account then there is no owner
+        const root_account_id_config_data = requested_account.owner || requested_account._id;
+        if (root_account_id_requesting_account !== root_account_id_config_data) {
+            this._throw_access_denied_error(action, requesting_account, { access_key }, entity_enum.ACCESS_KEY);
+        }
+    }
+
+    // we will se it after changes in the account (user or access keys)
+    _clean_account_cache(requested_account) {
+        for (const access_keys of requested_account.access_keys) {
+            const access_key_id = access_keys.access_key;
+            account_cache.invalidate(access_key_id);
+        }
+    }
 }
 
 // EXPORTS
