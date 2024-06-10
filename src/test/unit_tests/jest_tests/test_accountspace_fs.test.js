@@ -15,7 +15,7 @@ const SensitiveString = require('../../../util/sensitive_string');
 const AccountSpaceFS = require('../../../sdk/accountspace_fs');
 const { TMP_PATH } = require('../../system_tests/test_utils');
 const { get_process_fs_context } = require('../../../util/native_fs_utils');
-const { IAM_DEFAULT_PATH, identity_enum, access_key_status_enum } = require('../../../endpoint/iam/iam_utils');
+const { IAM_DEFAULT_PATH, access_key_status_enum } = require('../../../endpoint/iam/iam_utils');
 const fs_utils = require('../../../util/fs_utils');
 const { IamError } = require('../../../endpoint/iam/iam_errors');
 const nc_mkm = require('../../../manage_nsfs/nc_master_key_manager').get_instance();
@@ -704,14 +704,12 @@ describe('Accountspace_FS tests', () => {
                 expect(user_account_config_file.access_keys).toBeDefined();
                 expect(Array.isArray(user_account_config_file.access_keys)).toBe(true);
                 expect(user_account_config_file.access_keys.length).toBe(1);
-                expect(user_account_config_file.access_keys[0].creator_identity).toBe(identity_enum.ROOT_ACCOUNT);
 
                 const access_key = res.access_key;
                 const user_account_config_file_from_symlink = await read_config_file(accountspace_fs.access_keys_dir, access_key, true);
                 expect(user_account_config_file_from_symlink.name).toBe(params.username);
                 expect(user_account_config_file_from_symlink.access_keys).toBeDefined();
                 expect(Array.isArray(user_account_config_file_from_symlink.access_keys)).toBe(true);
-                expect(user_account_config_file_from_symlink.access_keys.length).toBe(1);
             });
 
             it('create_access_key should return user access key params (second time)', async function() {
@@ -732,7 +730,6 @@ describe('Accountspace_FS tests', () => {
                 expect(user_account_config_file.access_keys).toBeDefined();
                 expect(Array.isArray(user_account_config_file.access_keys)).toBe(true);
                 expect(user_account_config_file.access_keys.length).toBe(2);
-                expect(user_account_config_file.access_keys[1].creator_identity).toBe(identity_enum.ROOT_ACCOUNT);
 
                 const access_key = res.access_key;
                 const user_account_config_file_from_symlink = await read_config_file(accountspace_fs.access_keys_dir, access_key, true);
@@ -786,8 +783,6 @@ describe('Accountspace_FS tests', () => {
                 expect(user_account_config_file.access_keys).toBeDefined();
                 expect(Array.isArray(user_account_config_file.access_keys)).toBe(true);
                 expect(user_account_config_file.access_keys.length).toBe(2);
-                expect(user_account_config_file.access_keys[0].creator_identity).toBe(identity_enum.ROOT_ACCOUNT);
-                expect(user_account_config_file.access_keys[1].creator_identity).toBe(identity_enum.USER);
 
                 const access_key = res.access_key;
                 const user_account_config_file_from_symlink = await read_config_file(accountspace_fs.access_keys_dir, access_key, true);

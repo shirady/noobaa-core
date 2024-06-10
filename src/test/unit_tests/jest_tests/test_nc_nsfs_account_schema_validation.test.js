@@ -491,7 +491,6 @@ function get_access_key_with_additional_properties() {
             encrypted_secret_key: encrypted_secret_key,
             creation_date: '2024-06-03T07:40:58.808Z',
             status: 'Active',
-            creator_identity: 'ROOT_ACCOUNT',
     };
     return access_keys_object;
 }

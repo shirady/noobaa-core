@@ -67,10 +67,6 @@ module.exports = {
                         type: 'string',
                         enum: ['Active', 'Inactive']
                     },
-                    creator_identity: {
-                        type: 'string',
-                        enum: ['ROOT_ACCOUNT', 'USER']
-                    },
                     // temp - put here for multiple access keys (need to discuss)
                     master_key_id: {
                         objectid: true

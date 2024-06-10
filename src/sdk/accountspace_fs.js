@@ -264,7 +264,6 @@ class AccountSpaceFS {
                 encrypted_secret_key: encrypted_secret_key,
                 creation_date: new Date().toISOString(),
                 status: access_key_status_enum.ACTIVE,
-                creator_identity: requester.identity,
                 master_key_id: master_key_id, // TODO - move master_key_id to account only - would lead changes in encrypt_access_keys
             };
             requested_account.master_key_id = master_key_id;
