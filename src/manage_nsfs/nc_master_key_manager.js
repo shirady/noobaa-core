@@ -327,10 +327,21 @@ class NCMasterKeysManager {
     async encrypt_access_keys(account) {
         await this.init();
         const master_key_id = this.active_master_key.id;
-        const encrypted_access_keys = await P.all(_.map(account.access_keys, async access_keys => ({
+        const encrypted_access_keys_basic = await P.all(_.map(account.access_keys, async access_keys => ({
             access_key: access_keys.access_key,
             encrypted_secret_key: await this.encrypt(access_keys.secret_key, master_key_id)
         })));
+        // To have the freedom to change the access_keys object
+        // we will iterate the array and add the encrypted_secret_key
+        // and remove the secret_key
+        const encrypted_access_keys = [];
+        const size = account.access_keys.length;
+        for (let index = 0; index < size; index++) {
+            const access_keys = { ...account.access_keys[index] };
+            delete access_keys.secret_key;
+            access_keys.encrypted_secret_key = encrypted_access_keys_basic[index].encrypted_secret_key;
+            encrypted_access_keys[index] = access_keys;
+        }
         return { ...account, access_keys: encrypted_access_keys, master_key_id };
     }
 
@@ -340,11 +351,26 @@ class NCMasterKeysManager {
      * @returns {Promise<Object>}
      */
     async decrypt_access_keys(account) {
-        const decrypted_access_keys = await P.all(_.map(account.access_keys, async access_keys => ({
+        const decrypted_access_keys_basic = await P.all(_.map(account.access_keys, async access_keys => ({
                 access_key: access_keys.access_key,
-                secret_key: await this.decrypt(access_keys.encrypted_secret_key, account.master_key_id)
+                secret_key: await this.decrypt(access_keys.encrypted_secret_key, account.master_key_id),
         })));
+        // To have the freedom to change the access_keys object
+        // we will iterate the array and add the secret_key
+        // and remove the encrypted_secret_key
+        const decrypted_access_keys = [];
+        const size = account.access_keys.length;
+        for (let index = 0; index < size; index++) {
+            const access_keys = { ...account.access_keys[index] };
+            delete access_keys.encrypted_secret_key;
+            access_keys.secret_key = decrypted_access_keys_basic[index].secret_key;
+            decrypted_access_keys[index] = access_keys;
+        }
         return decrypted_access_keys;
+    }
+
+    get_active_master_key_id() {
+        return this.active_master_key.id;
     }
 
     /**
