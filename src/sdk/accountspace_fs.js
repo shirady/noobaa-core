@@ -572,15 +572,15 @@ class AccountSpaceFS {
     }
 
     async _check_username_already_exists(action, username) {
-            const account_config_path = this._get_account_config_path(username);
-            const name_exists = await native_fs_utils.is_path_exists(this.fs_context,
-                account_config_path);
-            if (name_exists) {
-                dbg.error(`AccountSpaceFS.${action} username already exists`, username);
-                const message_with_details = `User with name ${username} already exists.`;
-                const { code, http_code, type } = IamError.EntityAlreadyExists;
-                throw new IamError({ code, message: message_with_details, http_code, type });
-            }
+        const account_config_path = this._get_account_config_path(username);
+        const name_exists = await native_fs_utils.is_path_exists(this.fs_context,
+            account_config_path);
+        if (name_exists) {
+            dbg.error(`AccountSpaceFS.${action} username already exists`, username);
+            const message_with_details = `User with name ${username} already exists.`;
+            const { code, http_code, type } = IamError.EntityAlreadyExists;
+            throw new IamError({ code, message: message_with_details, http_code, type });
+        }
     }
 
     async _copy_data_from_requesting_account_to_account_config(action, requesting_account, params) {
@@ -767,7 +767,6 @@ class AccountSpaceFS {
     }
 
     _check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key) {
-        // 4 - check that config file is on the same root account
         const root_account_id_requesting_account = requesting_account.owner || requesting_account._id; // if it is root account then there is no owner
         const root_account_id_config_data = requested_account.owner || requested_account._id;
         if (root_account_id_requesting_account !== root_account_id_config_data) {
@@ -775,7 +774,8 @@ class AccountSpaceFS {
         }
     }
 
-    // we will se it after changes in the account (user or access keys)
+    // we will see it after changes in the account (user or access keys)
+    // this change is limited to the specific endpoint that uses
     _clean_account_cache(requested_account) {
         for (const access_keys of requested_account.access_keys) {
             const access_key_id = access_keys.access_key;
