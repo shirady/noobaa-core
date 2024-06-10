@@ -135,7 +135,7 @@ IamError.NotImplemented = Object.freeze({
 // DeleteAccessKey      errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteAccessKey.html
 // ListAccessKeys       errors https://docs.aws.amazon.com/IAM/latest/APIReference/API_ListAccessKeys.html
 IamError.ConcurrentModification = Object.freeze({
-    code: 'EntityAlreadyExists',
+    code: 'ConcurrentModification',
     message: 'The request was rejected because multiple requests to change this object were submitted simultaneously. Wait a few minutes and submit your request again.',
     http_code: 409,
     type: error_type_enum.SENDER,
@@ -147,13 +147,13 @@ IamError.EntityAlreadyExists = Object.freeze({
     type: error_type_enum.SENDER,
 });
 IamError.InvalidInput = Object.freeze({
-    code: 'EntityAlreadyExists',
+    code: 'InvalidInput',
     message: 'The request was rejected because an invalid or out-of-range value was supplied for an input parameter.',
     http_code: 400,
     type: error_type_enum.SENDER,
 });
 IamError.LimitExceeded = Object.freeze({
-    code: 'EntityAlreadyExists',
+    code: 'LimitExceeded',
     message: 'The request was rejected because it attempted to create resources beyond the current AWS account limits. The error message describes the limit exceeded.',
     http_code: 409,
     type: error_type_enum.SENDER,
@@ -182,14 +182,6 @@ IamError.EntityTemporarilyUnmodifiable = Object.freeze({
     http_code: 409,
     type: error_type_enum.SENDER,
 });
-// These errors were actually send after performing IAM actions
-IamError.AccessDenied = Object.freeze({
-    code: 'AccessDenied',
-    message: 'user is not authorized to perform action on resource',
-    http_code: 400,
-    type: error_type_enum.SENDER,
-});
-
 
 // These errors were copied from STS errors
 IamError.InvalidParameterValue = Object.freeze({

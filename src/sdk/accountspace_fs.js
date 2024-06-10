@@ -513,7 +513,7 @@ class AccountSpaceFS {
         } else { // entity_enum.ACCESS_KEY
             message_with_details = basic_message + `access key ${details.access_key}`;
         }
-        const { code, http_code, type } = IamError.AccessDenied;
+        const { code, http_code, type } = IamError.AccessDeniedException;
         throw new IamError({ code, message: message_with_details, http_code, type });
     }
 

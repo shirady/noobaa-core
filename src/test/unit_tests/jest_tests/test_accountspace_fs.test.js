@@ -205,7 +205,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -252,7 +252,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -266,7 +266,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -353,7 +353,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -367,7 +367,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -470,7 +470,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -484,7 +484,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -590,7 +590,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
         });
@@ -649,7 +649,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -812,7 +812,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
         });
@@ -855,7 +855,7 @@ describe('Accountspace_FS tests', () => {
                     await accountspace_fs.get_access_key_last_used(params, account_sdk);
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -882,7 +882,7 @@ describe('Accountspace_FS tests', () => {
                     await accountspace_fs.get_access_key_last_used(params, account_sdk2);
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -920,7 +920,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -937,7 +937,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -955,7 +955,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -1038,7 +1038,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
         });
@@ -1056,7 +1056,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -1072,7 +1072,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -1089,7 +1089,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -1143,7 +1143,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
         });
@@ -1189,7 +1189,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
 
@@ -1239,7 +1239,7 @@ describe('Accountspace_FS tests', () => {
                     throw new NoErrorThrownError();
                 } catch (err) {
                     expect(err).toBeInstanceOf(IamError);
-                    expect(err).toHaveProperty('code', IamError.AccessDenied.code);
+                    expect(err).toHaveProperty('code', IamError.AccessDeniedException.code);
                 }
             });
         });
