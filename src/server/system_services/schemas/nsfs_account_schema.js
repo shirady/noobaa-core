@@ -63,9 +63,9 @@ module.exports = {
                     creation_date: {
                         type: 'string',
                     },
-                    status: {
-                        type: 'string',
-                        enum: ['Active', 'Inactive']
+                    // we would need to translate the is_active to 'Active' and 'Inactive' strings
+                    is_active: {
+                        type: 'boolean',
                     },
                     // temp - put here for multiple access keys (need to discuss)
                     master_key_id: {

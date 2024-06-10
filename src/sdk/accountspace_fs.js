@@ -263,7 +263,7 @@ class AccountSpaceFS {
                 access_key: generated_access_key,
                 encrypted_secret_key: encrypted_secret_key,
                 creation_date: new Date().toISOString(),
-                status: access_key_status_enum.ACTIVE,
+                is_active: true,
                 master_key_id: master_key_id, // TODO - move master_key_id to account only - would lead changes in encrypt_access_keys
             };
             requested_account.master_key_id = master_key_id;
@@ -278,7 +278,7 @@ class AccountSpaceFS {
                 username: requested_account.name,
                 access_key: requested_account.access_keys[index_for_access_key].access_key,
                 create_date: requested_account.access_keys[index_for_access_key].creation_date,
-                status: requested_account.access_keys[index_for_access_key].status,
+                status: this._get_access_key_status(requested_account.access_keys[index_for_access_key].is_active),
                 secret_key: generated_secret_key,
             };
         } catch (err) {
@@ -337,15 +337,15 @@ class AccountSpaceFS {
             const requested_account = await get_config_data(this.fs_root, requested_account_path, true);
             this._check_if_requested_account_same_as_requesting_account(action, requesting_account, requested_account, access_key_id);
             const { index_for_access_key, access_key } = this._get_access_key(requested_account, params.access_key);
-            if (access_key.status === params.status) {
+            if (this._get_access_key_status(access_key.is_active) === params.status) {
                 dbg.log1(`AccountSpaceFS.${action} status was not change, not updating the account config file`);
                 return;
             }
-            // encryption GAP - need this functionality from nc_master_key_manager)
+            // // encryption GAP - need this functionality from nc_master_key_manager)
             const { secret_key } = await this._decrypt_encrypted_secret_key(access_key.encrypted_secret_key);
             const { encrypted_secret_key, master_key_id } = await this._encrypt_secret_key(secret_key);
             requested_account.access_keys[index_for_access_key].encrypted_secret_key = encrypted_secret_key;
-            requested_account.access_keys[index_for_access_key].status = params.status;
+            requested_account.access_keys[index_for_access_key].is_active = this._get_access_key_is_active(params.status);
             requested_account.access_keys[index_for_access_key].master_key_id = master_key_id; // temp here
             requested_account.master_key_id = master_key_id;
             const account_string = JSON.stringify(requested_account);
@@ -718,13 +718,23 @@ class AccountSpaceFS {
         };
     }
 
+    _get_access_key_status(is_active) {
+        // we would like the default to be Active, so we check is we explicitly set false in is_active
+        const status = is_active === false ? access_key_status_enum.INACTIVE : access_key_status_enum.ACTIVE;
+        return status;
+    }
+
+    _get_access_key_is_active(status) {
+        return status === access_key_status_enum.ACTIVE;
+    }
+
     _list_access_keys_from_account(account) {
         const members = [];
         for (const access_key of account.access_keys) {
             const member = {
                 username: account.name,
                 access_key: access_key.access_key,
-                status: access_key.status ?? access_key_status_enum.ACTIVE,
+                status: this._get_access_key_status(access_key.is_active),
                 create_date: access_key.creation_date ?? account.creation_date,
             };
             members.push(member);

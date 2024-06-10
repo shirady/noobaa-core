@@ -966,7 +966,7 @@ describe('Accountspace_FS tests', () => {
                 const res = await accountspace_fs.update_access_key(params, account_sdk);
                 expect(res).toBeUndefined();
                 user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username1);
-                expect(user_account_config_file.access_keys[0].status).toBe(access_key_status_enum.INACTIVE);
+                expect(user_account_config_file.access_keys[0].is_active).toBe(false);
             });
 
             it('update_access_key should not return any param (update status to Active)', async function() {
@@ -981,7 +981,7 @@ describe('Accountspace_FS tests', () => {
                 const res = await accountspace_fs.update_access_key(params, account_sdk);
                 expect(res).toBeUndefined();
                 user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username1);
-                expect(user_account_config_file.access_keys[0].status).toBe(access_key_status_enum.ACTIVE);
+                expect(user_account_config_file.access_keys[0].is_active).toBe(true);
             });
 
             it('update_access_key should not return any param (update status to Active, already was Active)', async function() {
@@ -996,12 +996,13 @@ describe('Accountspace_FS tests', () => {
                 const res = await accountspace_fs.update_access_key(params, account_sdk);
                 expect(res).toBeUndefined();
                 user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username1);
-                expect(user_account_config_file.access_keys[0].status).toBe(access_key_status_enum.ACTIVE);
+                expect(user_account_config_file.access_keys[0].is_active).toBe(true);
             });
 
             it('update_access_key should not return any param (requester is an IAM user)', async function() {
+                const dummy_username = dummy_username5;
                 let account_sdk = make_dummy_account_sdk();
-                let user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username5);
+                let user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username);
                 // by the IAM user
                 account_sdk = make_dummy_account_sdk_iam_user(user_account_config_file, user_account_config_file.owner);
                 const access_key = user_account_config_file.access_keys[1].access_key;
@@ -1011,8 +1012,8 @@ describe('Accountspace_FS tests', () => {
                 };
                 const res = await accountspace_fs.update_access_key(params, account_sdk);
                 expect(res).toBeUndefined();
-                user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username1);
-                expect(user_account_config_file.access_keys[1].status).toBe(access_key_status_enum.ACTIVE);
+                user_account_config_file = await read_config_file(accountspace_fs.accounts_dir, dummy_username);
+                expect(user_account_config_file.access_keys[1].is_active).toBe(false);
             });
 
             it('update_access_key should return an error if user is not owned by the root account (requester is an IAM user)', async function() {

@@ -490,7 +490,7 @@ function get_access_key_with_additional_properties() {
             access_key: access_key_id,
             encrypted_secret_key: encrypted_secret_key,
             creation_date: '2024-06-03T07:40:58.808Z',
-            status: 'Active',
+            is_active: true,
     };
     return access_keys_object;
 }
