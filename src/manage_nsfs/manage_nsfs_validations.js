@@ -322,50 +322,54 @@ async function validate_bucket_args(config_root_backend, accounts_dir_path, data
  * @param {string} action
  */
 async function validate_account_args(data, action) {
-    if (action === ACTIONS.STATUS || action === ACTIONS.DELETE) {
-        if (!has_access_keys(data.access_keys) && _.isUndefined(data.access_keys[0].access_key) && _.isUndefined(data.name)) {
-            throw_cli_error(ManageCLIError.MissingIdentifier);
-        }
-    } else {
-        if ((action !== ACTIONS.UPDATE && data.new_name)) throw_cli_error(ManageCLIError.InvalidNewNameAccountIdentifier);
-        if ((action !== ACTIONS.UPDATE && data.new_access_key)) throw_cli_error(ManageCLIError.InvalidNewAccessKeyIdentifier);
-        if (_.isUndefined(data.name)) throw_cli_error(ManageCLIError.MissingAccountNameFlag);
+    try {
+        if (action === ACTIONS.STATUS || action === ACTIONS.DELETE) {
+            if (!has_access_keys(data.access_keys) && _.isUndefined(data.access_keys[0].access_key) && _.isUndefined(data.name)) {
+                throw_cli_error(ManageCLIError.MissingIdentifier);
+            }
+        } else {
+            if ((action !== ACTIONS.UPDATE && data.new_name)) throw_cli_error(ManageCLIError.InvalidNewNameAccountIdentifier);
+            if ((action !== ACTIONS.UPDATE && data.new_access_key)) throw_cli_error(ManageCLIError.InvalidNewAccessKeyIdentifier);
+            if (_.isUndefined(data.name)) throw_cli_error(ManageCLIError.MissingAccountNameFlag);
 
-        if (!has_access_keys(data.access_keys) && _.isUndefined(data.access_keys[0].secret_key)) {
-            throw_cli_error(ManageCLIError.MissingAccountSecretKeyFlag);
-        }
-        if (!has_access_keys(data.access_keys) && _.isUndefined(data.access_keys[0].access_key)) {
-            throw_cli_error(ManageCLIError.MissingAccountAccessKeyFlag);
-        }
-        if (data.nsfs_account_config.gid && data.nsfs_account_config.uid === undefined) {
-            throw_cli_error(ManageCLIError.MissingAccountNSFSConfigUID, data.nsfs_account_config);
-        }
-        if (data.nsfs_account_config.uid && data.nsfs_account_config.gid === undefined) {
-            throw_cli_error(ManageCLIError.MissingAccountNSFSConfigGID, data.nsfs_account_config);
-        }
-        if ((_.isUndefined(data.nsfs_account_config.distinguished_name) &&
-                (data.nsfs_account_config.uid === undefined || data.nsfs_account_config.gid === undefined))) {
-            throw_cli_error(ManageCLIError.InvalidAccountNSFSConfig, data.nsfs_account_config);
-        }
-        if (!_.isUndefined(data.nsfs_account_config.fs_backend) && !['GPFS', 'CEPH_FS', 'NFSv4'].includes(data.nsfs_account_config.fs_backend)) {
-            throw_cli_error(ManageCLIError.InvalidFSBackend);
-        }
+            if (!has_access_keys(data.access_keys) && _.isUndefined(data.access_keys[0].secret_key)) {
+                throw_cli_error(ManageCLIError.MissingAccountSecretKeyFlag);
+            }
+            if (!has_access_keys(data.access_keys) && _.isUndefined(data.access_keys[0].access_key)) {
+                throw_cli_error(ManageCLIError.MissingAccountAccessKeyFlag);
+            }
+            if (data.nsfs_account_config.gid && data.nsfs_account_config.uid === undefined) {
+                throw_cli_error(ManageCLIError.MissingAccountNSFSConfigUID, data.nsfs_account_config);
+            }
+            if (data.nsfs_account_config.uid && data.nsfs_account_config.gid === undefined) {
+                throw_cli_error(ManageCLIError.MissingAccountNSFSConfigGID, data.nsfs_account_config);
+            }
+            if ((_.isUndefined(data.nsfs_account_config.distinguished_name) &&
+                    (data.nsfs_account_config.uid === undefined || data.nsfs_account_config.gid === undefined))) {
+                throw_cli_error(ManageCLIError.InvalidAccountNSFSConfig, data.nsfs_account_config);
+            }
+            if (!_.isUndefined(data.nsfs_account_config.fs_backend) && !['GPFS', 'CEPH_FS', 'NFSv4'].includes(data.nsfs_account_config.fs_backend)) {
+                throw_cli_error(ManageCLIError.InvalidFSBackend);
+            }
 
-        if (_.isUndefined(data.nsfs_account_config.new_buckets_path)) {
-            return;
+            if (_.isUndefined(data.nsfs_account_config.new_buckets_path)) {
+                return;
+            }
+            // in case we have the fs_backend it changes the fs_context that we use for the new_buckets_path
+            const fs_context_fs_backend = native_fs_utils.get_process_fs_context(data.fs_backend);
+            const exists = await native_fs_utils.is_path_exists(fs_context_fs_backend, data.nsfs_account_config.new_buckets_path);
+            if (!exists) {
+                throw_cli_error(ManageCLIError.InvalidAccountNewBucketsPath, data.nsfs_account_config.new_buckets_path);
+            }
+            if (config.NC_DISABLE_ACCESS_CHECK) return;
+            const account_fs_context = await native_fs_utils.get_fs_context(data.nsfs_account_config, data.fs_backend);
+            const accessible = await native_fs_utils.is_dir_rw_accessible(account_fs_context, data.nsfs_account_config.new_buckets_path);
+            if (!accessible) {
+                throw_cli_error(ManageCLIError.InaccessibleAccountNewBucketsPath, data.nsfs_account_config.new_buckets_path);
+            }
         }
-        // in case we have the fs_backend it changes the fs_context that we use for the new_buckets_path
-        const fs_context_fs_backend = native_fs_utils.get_process_fs_context(data.fs_backend);
-        const exists = await native_fs_utils.is_path_exists(fs_context_fs_backend, data.nsfs_account_config.new_buckets_path);
-        if (!exists) {
-            throw_cli_error(ManageCLIError.InvalidAccountNewBucketsPath, data.nsfs_account_config.new_buckets_path);
-        }
-        if (config.NC_DISABLE_ACCESS_CHECK) return;
-        const account_fs_context = await native_fs_utils.get_fs_context(data.nsfs_account_config, data.fs_backend);
-        const accessible = await native_fs_utils.is_dir_rw_accessible(account_fs_context, data.nsfs_account_config.new_buckets_path);
-        if (!accessible) {
-            throw_cli_error(ManageCLIError.InaccessibleAccountNewBucketsPath, data.nsfs_account_config.new_buckets_path);
-        }
+    } catch (err) {
+        console.log('SDSD validate_account_args', 'data', data, 'action', action, 'SDSD err', err);
     }
 }
 
@@ -394,19 +398,24 @@ function _validate_access_keys(access_key, secret_key) {
  * @param {string} account_name
  */
 async function verify_delete_account(config_root_backend, buckets_dir_path, account_name) {
-    const fs_context = native_fs_utils.get_process_fs_context(config_root_backend);
-    const entries = await nb_native().fs.readdir(fs_context, buckets_dir_path);
-    await P.map_with_concurrency(10, entries, async entry => {
-        if (entry.name.endsWith('.json')) {
-            const full_path = path.join(buckets_dir_path, entry.name);
-            const data = await get_config_data(config_root_backend, full_path);
-            if (data.bucket_owner === account_name) {
-                const detail_msg = `Account ${account_name} has bucket ${data.name}`;
-                throw_cli_error(ManageCLIError.AccountDeleteForbiddenHasBuckets, detail_msg);
+    try {
+        const fs_context = native_fs_utils.get_process_fs_context(config_root_backend);
+        const entries = await nb_native().fs.readdir(fs_context, buckets_dir_path);
+        await P.map_with_concurrency(10, entries, async entry => {
+            if (entry.name.endsWith('.json')) {
+                const full_path = path.join(buckets_dir_path, entry.name);
+                const data = await get_config_data(config_root_backend, full_path);
+                if (data.bucket_owner === account_name) {
+                    const detail_msg = `Account ${account_name} has bucket ${data.name}`;
+                    throw_cli_error(ManageCLIError.AccountDeleteForbiddenHasBuckets, detail_msg);
+                }
+                return data;
             }
-            return data;
-        }
-    });
+        });
+    } catch (err) {
+        console.log('SDSD verify_delete_account', 'config_root_backend', config_root_backend,
+            'buckets_dir_path', buckets_dir_path, 'account_name', account_name, 'SDSD err', err);
+    }
 }
 
 ///////////////////////////////////

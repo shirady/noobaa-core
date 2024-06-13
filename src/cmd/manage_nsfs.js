@@ -104,7 +104,7 @@ async function main(argv = minimist(process.argv.slice(2))) {
             throw_cli_error(ManageCLIError.InvalidType);
         }
     } catch (err) {
-        dbg.log1('NSFS Manage command: exit on error', err.stack || err);
+        dbg.error('SDSD NSFS Manage command: exit on error', err.stack || err);
         const manage_err = ((err instanceof ManageCLIError) && err) ||
             new ManageCLIError({
                 ...(ManageCLIError.FS_ERRORS_TO_MANAGE[err.code] ||
@@ -331,94 +331,103 @@ function set_access_keys(access_key, secret_key, generate) {
 
 // in name and new_name we allow type number, hence convert it to string
 async function fetch_account_data(action, user_input) {
-    const { access_keys = [], new_access_key = undefined } = user_input.anonymous ? {} : get_access_keys(action, user_input);
-    let data = {
-        // added undefined values to keep the order the properties when printing the data object
-        _id: undefined,
-        name: _.isUndefined(user_input.name) ? undefined : String(user_input.name),
-        email: _.isUndefined(user_input.name) ? undefined : String(user_input.name), // temp, keep the email internally
-        creation_date: action === ACTIONS.ADD ? new Date().toISOString() : undefined,
-        new_name: _.isUndefined(user_input.new_name) ? undefined : String(user_input.new_name),
-        new_access_key,
-        access_keys,
-        force_md5_etag: _.isUndefined(user_input.force_md5_etag) || user_input.force_md5_etag === '' ? user_input.force_md5_etag : get_boolean_or_string_value(user_input.force_md5_etag),
-        nsfs_account_config: {
-            distinguished_name: user_input.user,
-            uid: user_input.user ? undefined : user_input.uid,
-            gid: user_input.user ? undefined : user_input.gid,
-            new_buckets_path: user_input.new_buckets_path,
-            fs_backend: user_input.fs_backend ? String(user_input.fs_backend) : config.NSFS_NC_STORAGE_BACKEND
+    try {
+        const { access_keys = [], new_access_key = undefined } = user_input.anonymous ? {} : get_access_keys(action, user_input);
+        let data = {
+            // added undefined values to keep the order the properties when printing the data object
+            _id: undefined,
+            name: _.isUndefined(user_input.name) ? undefined : String(user_input.name),
+            email: _.isUndefined(user_input.name) ? undefined : String(user_input.name), // temp, keep the email internally
+            creation_date: action === ACTIONS.ADD ? new Date().toISOString() : undefined,
+            new_name: _.isUndefined(user_input.new_name) ? undefined : String(user_input.new_name),
+            new_access_key,
+            access_keys,
+            force_md5_etag: _.isUndefined(user_input.force_md5_etag) || user_input.force_md5_etag === '' ? user_input.force_md5_etag : get_boolean_or_string_value(user_input.force_md5_etag),
+            nsfs_account_config: {
+                distinguished_name: user_input.user,
+                uid: user_input.user ? undefined : user_input.uid,
+                gid: user_input.user ? undefined : user_input.gid,
+                new_buckets_path: user_input.new_buckets_path,
+                fs_backend: user_input.fs_backend ? String(user_input.fs_backend) : config.NSFS_NC_STORAGE_BACKEND
+            }
+        };
+        if (action === ACTIONS.UPDATE || action === ACTIONS.DELETE) {
+            // @ts-ignore
+            data = _.omitBy(data, _.isUndefined);
+            const decrypt_secret_key = action === ACTIONS.UPDATE;
+            data = await fetch_existing_account_data(action, data, decrypt_secret_key);
         }
-    };
-    if (action === ACTIONS.UPDATE || action === ACTIONS.DELETE) {
-        // @ts-ignore
-        data = _.omitBy(data, _.isUndefined);
-        const decrypt_secret_key = action === ACTIONS.UPDATE;
-        data = await fetch_existing_account_data(action, data, decrypt_secret_key);
-    }
 
-    // override values
-    // access_key as SensitiveString
-    if (!has_access_keys(data.access_keys)) {
-        data.access_keys[0].access_key = _.isUndefined(data.access_keys[0].access_key) ? undefined :
-        new SensitiveString(String(data.access_keys[0].access_key));
-        // secret_key as SensitiveString
-        data.access_keys[0].secret_key = _.isUndefined(data.access_keys[0].secret_key) ? undefined :
-        new SensitiveString(String(data.access_keys[0].secret_key));
-    }
-    // fs_backend deletion specified with empty string '' (but it is not part of the schema)
-    data.nsfs_account_config.fs_backend = data.nsfs_account_config.fs_backend || undefined;
-    // new_buckets_path deletion specified with empty string ''
-    data.nsfs_account_config.new_buckets_path = data.nsfs_account_config.new_buckets_path || undefined;
-    // force_md5_etag deletion specified with empty string '' checked against user_input.force_md5_etag because data.force_md5_etag is boolean
-    data.force_md5_etag = data.force_md5_etag === '' ? undefined : data.force_md5_etag;
-    // allow_bucket_creation either set by user or infer from new_buckets_path
-    if (_.isUndefined(user_input.allow_bucket_creation)) {
-        data.allow_bucket_creation = !_.isUndefined(data.nsfs_account_config.new_buckets_path);
-    } else if (typeof user_input.allow_bucket_creation === 'boolean') {
-        data.allow_bucket_creation = Boolean(user_input.allow_bucket_creation);
-    } else { // string of true or false
-        data.allow_bucket_creation = user_input.allow_bucket_creation.toLowerCase() === 'true';
-    }
+        // override values
+        // access_key as SensitiveString
+        if (!has_access_keys(data.access_keys)) {
+            data.access_keys[0].access_key = _.isUndefined(data.access_keys[0].access_key) ? undefined :
+            new SensitiveString(String(data.access_keys[0].access_key));
+            // secret_key as SensitiveString
+            data.access_keys[0].secret_key = _.isUndefined(data.access_keys[0].secret_key) ? undefined :
+            new SensitiveString(String(data.access_keys[0].secret_key));
+        }
+        // fs_backend deletion specified with empty string '' (but it is not part of the schema)
+        data.nsfs_account_config.fs_backend = data.nsfs_account_config.fs_backend || undefined;
+        // new_buckets_path deletion specified with empty string ''
+        data.nsfs_account_config.new_buckets_path = data.nsfs_account_config.new_buckets_path || undefined;
+        // force_md5_etag deletion specified with empty string '' checked against user_input.force_md5_etag because data.force_md5_etag is boolean
+        data.force_md5_etag = data.force_md5_etag === '' ? undefined : data.force_md5_etag;
+        // allow_bucket_creation either set by user or infer from new_buckets_path
+        if (_.isUndefined(user_input.allow_bucket_creation)) {
+            data.allow_bucket_creation = !_.isUndefined(data.nsfs_account_config.new_buckets_path);
+        } else if (typeof user_input.allow_bucket_creation === 'boolean') {
+            data.allow_bucket_creation = Boolean(user_input.allow_bucket_creation);
+        } else { // string of true or false
+            data.allow_bucket_creation = user_input.allow_bucket_creation.toLowerCase() === 'true';
+        }
 
-    return data;
+        return data;
+    } catch (err) {
+        dbg.error('SDSD fetch_account_data', 'action', action, 'user_input', user_input, 'SDSD err', err);
+    }
 }
 
 async function fetch_existing_account_data(action, target, decrypt_secret_key) {
     let source;
     try {
-        const account_path = target.name ?
-            get_config_file_path(accounts_dir_path, target.name) :
-            get_symlink_config_file_path(access_keys_dir_path, target.access_keys[0].access_key);
-        source = await get_config_data(config_root_backend, account_path, true);
-        if (decrypt_secret_key) source.access_keys = await nc_mkm.decrypt_access_keys(source);
+        try {
+            const account_path = target.name ?
+                get_config_file_path(accounts_dir_path, target.name) :
+                get_symlink_config_file_path(access_keys_dir_path, target.access_keys[0].access_key);
+            source = await get_config_data(config_root_backend, account_path, true);
+            if (decrypt_secret_key) source.access_keys = await nc_mkm.decrypt_access_keys(source);
+        } catch (err) {
+            dbg.log1('NSFS Manage command: Could not find account', target, err);
+            if (err.code === 'ENOENT') {
+                if (_.isUndefined(target.name)) {
+                    throw_cli_error(ManageCLIError.NoSuchAccountAccessKey, target.access_keys[0].access_key);
+                } else {
+                    throw_cli_error(ManageCLIError.NoSuchAccountName, target.name);
+                }
+            }
+            throw err;
+        }
+        const data = _.merge({}, source, target);
+        if (action === ACTIONS.UPDATE) {
+            const uid_update = !_.isUndefined(target.nsfs_account_config.uid);
+            const gid_update = !_.isUndefined(target.nsfs_account_config.gid);
+            const dn_update = !_.isUndefined(target.nsfs_account_config.distinguished_name);
+            const user_fs_permissions_change = uid_update || gid_update || dn_update;
+            if (user_fs_permissions_change) {
+                if (dn_update) {
+                    delete data.nsfs_account_config.uid;
+                    delete data.nsfs_account_config.gid;
+                } else {
+                    delete data.nsfs_account_config.distinguished_name;
+                }
+            }
+        }
+        return data;
     } catch (err) {
-        dbg.log1('NSFS Manage command: Could not find account', target, err);
-        if (err.code === 'ENOENT') {
-            if (_.isUndefined(target.name)) {
-                throw_cli_error(ManageCLIError.NoSuchAccountAccessKey, target.access_keys[0].access_key);
-            } else {
-                throw_cli_error(ManageCLIError.NoSuchAccountName, target.name);
-            }
-        }
-        throw err;
+        dbg.error('SDSD fetch_existing_account_data', 'action', action, 'target', target,
+            'decrypt_secret_key', decrypt_secret_key, 'SDSD err', err);
     }
-    const data = _.merge({}, source, target);
-    if (action === ACTIONS.UPDATE) {
-        const uid_update = !_.isUndefined(target.nsfs_account_config.uid);
-        const gid_update = !_.isUndefined(target.nsfs_account_config.gid);
-        const dn_update = !_.isUndefined(target.nsfs_account_config.distinguished_name);
-        const user_fs_permissions_change = uid_update || gid_update || dn_update;
-        if (user_fs_permissions_change) {
-            if (dn_update) {
-                delete data.nsfs_account_config.uid;
-                delete data.nsfs_account_config.gid;
-            } else {
-                delete data.nsfs_account_config.distinguished_name;
-            }
-        }
-    }
-    return data;
 }
 
 async function add_account(data) {
@@ -522,17 +531,21 @@ async function update_account(data) {
 }
 
 async function delete_account(data) {
-    await validate_account_args(data, ACTIONS.DELETE);
-    await verify_delete_account(config_root_backend, buckets_dir_path, data.name);
+    try {
+        await validate_account_args(data, ACTIONS.DELETE);
+        await verify_delete_account(config_root_backend, buckets_dir_path, data.name);
 
-    const fs_context = native_fs_utils.get_process_fs_context(config_root_backend);
-    const account_config_path = get_config_file_path(accounts_dir_path, data.name);
-    await native_fs_utils.delete_config_file(fs_context, accounts_dir_path, account_config_path);
-    if (!has_access_keys(data.access_keys)) {
-        const access_key_config_path = get_symlink_config_file_path(access_keys_dir_path, data.access_keys[0].access_key);
-        await nb_native().fs.unlink(fs_context, access_key_config_path);
+        const fs_context = native_fs_utils.get_process_fs_context(config_root_backend);
+        const account_config_path = get_config_file_path(accounts_dir_path, data.name);
+        await native_fs_utils.delete_config_file(fs_context, accounts_dir_path, account_config_path);
+        if (!has_access_keys(data.access_keys)) {
+            const access_key_config_path = get_symlink_config_file_path(access_keys_dir_path, data.access_keys[0].access_key);
+            await nb_native().fs.unlink(fs_context, access_key_config_path);
+        }
+        write_stdout_response(ManageCLIResponse.AccountDeleted, '', {account: data.name});
+    } catch (err) {
+        dbg.error('SDSD delete_account data', data, 'SDSD err', err);
     }
-    write_stdout_response(ManageCLIResponse.AccountDeleted, '', {account: data.name});
 }
 
 async function get_account_status(data, show_secrets) {

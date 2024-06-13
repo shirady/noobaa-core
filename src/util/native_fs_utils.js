@@ -332,7 +332,8 @@ async function delete_config_file(fs_context, schema_dir, config_path) {
 
         dbg.log1('native_fs_utils: delete_config_file done', config_path);
     } catch (err) {
-        dbg.log1('native_fs_utils: delete_config_file error', err);
+        dbg.error('SDSD native_fs_utils: delete_config_file', 'fs_context', fs_context,
+            'schema_dir', schema_dir, 'config_path', config_path, 'SDSD err', err);
         throw err;
     } finally {
         await finally_close_files(fs_context, [gpfs_dir_file, gpfs_src_file]);
