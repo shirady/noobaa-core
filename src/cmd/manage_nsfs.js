@@ -341,6 +341,10 @@ async function fetch_account_data(action, user_input) {
         new_access_key,
         access_keys,
         force_md5_etag: _.isUndefined(user_input.force_md5_etag) || user_input.force_md5_etag === '' ? user_input.force_md5_etag : get_boolean_or_string_value(user_input.force_md5_etag),
+        iam_operate_on_root_account: _.isUndefined(user_input.iam_operate_on_root_account) ||
+            user_input.iam_operate_on_root_account === '' ?
+                user_input.iam_operate_on_root_account :
+                get_boolean_or_string_value(user_input.iam_operate_on_root_account),
         nsfs_account_config: {
             distinguished_name: user_input.user,
             uid: user_input.user ? undefined : user_input.uid,
@@ -371,7 +375,9 @@ async function fetch_account_data(action, user_input) {
     data.nsfs_account_config.new_buckets_path = data.nsfs_account_config.new_buckets_path || undefined;
     // force_md5_etag deletion specified with empty string '' checked against user_input.force_md5_etag because data.force_md5_etag is boolean
     data.force_md5_etag = data.force_md5_etag === '' ? undefined : data.force_md5_etag;
-    // allow_bucket_creation either set by user or infer from new_buckets_path
+    // iam_operate_on_root_account deletion specified with empty string ''
+    data.iam_operate_on_root_account = data.iam_operate_on_root_account === '' ?
+        undefined : data.iam_operate_on_root_account;
     if (_.isUndefined(user_input.allow_bucket_creation)) {
         data.allow_bucket_creation = !_.isUndefined(data.nsfs_account_config.new_buckets_path);
     } else if (typeof user_input.allow_bucket_creation === 'boolean') {
@@ -456,8 +462,13 @@ async function add_account(data) {
 }
 
 
-async function update_account(data) {
+async function update_account(data, user_input) {
     await manage_nsfs_validations.validate_account_args(data, ACTIONS.UPDATE);
+    const is_flag_iam_operate_on_root_account = get_boolean_or_string_value(user_input.iam_operate_on_root_account);
+    if (is_flag_iam_operate_on_root_account) {
+        await manage_nsfs_validations.validate_root_accounts_manager_update(
+            config_root_backend, accounts_dir_path, data);
+    }
 
     const fs_context = native_fs_utils.get_process_fs_context(config_root_backend);
     const cur_name = data.name;
@@ -559,7 +570,7 @@ async function manage_account_operations(action, data, show_secrets, user_input)
     } else if (action === ACTIONS.STATUS) {
         await get_account_status(data, show_secrets);
     } else if (action === ACTIONS.UPDATE) {
-        await update_account(data);
+        await update_account(data, user_input);
     } else if (action === ACTIONS.DELETE) {
         await delete_account(data);
     } else if (action === ACTIONS.LIST) {

@@ -52,3 +52,12 @@ Note: Currently we clean the cache after update, but it happens for the specific
 2. Use the root account credentials to create access keys for the user:(first time): `nc-user-1-iam iam create-access-key --user-name <username>` (You should see the first symbolic link in under the access_keys directory).
 3. Use the root account credentials to create access keys for the user (second time): `nc-user-1-iam iam create-access-key --user-name <username>` (You should see the second symbolic link in under the access_keys directory).
 4. Update the username: `nc-user-1-iam iam update-user --user-name <username> --new-user-name <new-username>` (You should see the following changes: config file name updated, symlinks updated according to the current config).
+
+#### Create root account using the IAM API (requesting account is root accounts manager):
+1. Create the root accounts manager with the CLI:
+`sudo node src/cmd/manage_nsfs account add --name <name>> --new_buckets_path /tmp/nsfs_root1 --access_key <access-key> --secret_key <secret-key> --uid <uid> --gid <gid> --iam_operate_on_root_account`.
+2. Use the root accounts manager details in the alias:
+`alias nc-user-manager-iam='AWS_ACCESS_KEY_ID=<access-key> AWS_SECRET_ACCESS_KEY=<secret-key> aws --no-verify-ssl --endpoint-url https://localhost:7005'`.
+3. Use the root accounts manager account credentials to create a root account:
+ `nc-user-manager-iam create-user --user-name <username>`
+4. Use the root account credentials to create access keys for the root account: `nc-user-manager-iam iam create-access-key --user-name <username>`
