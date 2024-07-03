@@ -558,11 +558,12 @@ async function verify_delete_account(account_name) {
     const show_secrets = false; // in buckets we don't save secrets in coofig file
     const fs_context = native_fs_utils.get_process_fs_context(config_root_backend);
     const entries = await nb_native().fs.readdir(fs_context, buckets_dir_path);
+    let data;
     await P.map_with_concurrency(10, entries, async entry => {
         if (entry.name.endsWith('.json')) {
             const full_path = path.join(buckets_dir_path, entry.name);
-            const data = await get_config_data(full_path, show_secrets);
-            if (data.bucket_owner === account_name) {
+            data = await get_config_data_if_exists(full_path, show_secrets);
+            if (data && data.bucket_owner === account_name) {
                 const detail_msg = `Account ${account_name} has bucket ${data.name}`;
                 throw_cli_error(ManageCLIError.AccountDeleteForbiddenHasBuckets, detail_msg);
             }
@@ -675,7 +676,8 @@ async function list_config_files(type, config_path, wide, show_secrets, filters)
         if (entry.name.endsWith('.json')) {
             if (wide || should_filter) {
                 const full_path = path.join(config_path, entry.name);
-                const data = await get_config_data(full_path, show_secrets || should_filter);
+                const data = await get_config_data_if_exists(config_root_backend, full_path, show_secrets || should_filter);
+                if (!data) return undefined;
                 // decryption causing mkm initalization
                 // decrypt only if data has access_keys and show_secrets = true (no need to decrypt if show_secrets = false but should_filter = true)
                 if (data.access_keys && show_secrets) data.access_keys = await nc_mkm.decrypt_access_keys(data);
@@ -688,6 +690,7 @@ async function list_config_files(type, config_path, wide, show_secrets, filters)
         }
     });
     // it inserts undefined for the entry '.noobaa-config-nsfs' and we wish to remove it
+    // in case the entry was deleted during the list it also inserts undefined
     config_files_list = config_files_list.filter(item => item);
 
     return config_files_list;
@@ -704,6 +707,23 @@ async function get_config_data(config_file_path, show_secrets = false) {
     const { data } = await nb_native().fs.readFile(fs_context, config_file_path);
     const config_data = _.omit(JSON.parse(data.toString()), show_secrets ? [] : ['access_keys']);
     return config_data;
+}
+
+/**
+ * get_config_data_if_exists will read a config file and return its content 
+ * while omitting secrets if show_secrets flag was not provided
+ * if the config file was deleted (encounter ENOENT error) - continue (returns undefined)
+ * @param {string} config_file_path
+ * @param {boolean} [show_secrets]
+ */
+async function get_config_data_if_exists(config_file_path, show_secrets = false) {
+    try {
+        const config_data = await get_config_data(config_file_path, show_secrets);
+        return config_data;
+    } catch (err) {
+        dbg.warn('get_config_data_if_exists: with config_file_path', config_file_path, 'got an error', err);
+        if (err.code !== 'ENOENT') throw err;
+    }
 }
 
 /**
