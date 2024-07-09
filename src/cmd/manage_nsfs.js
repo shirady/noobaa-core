@@ -676,7 +676,7 @@ async function list_config_files(type, config_path, wide, show_secrets, filters)
         if (entry.name.endsWith('.json')) {
             if (wide || should_filter) {
                 const full_path = path.join(config_path, entry.name);
-                const data = await get_config_data_if_exists(config_root_backend, full_path, show_secrets || should_filter);
+                const data = await get_config_data_if_exists(full_path, show_secrets || should_filter);
                 if (!data) return undefined;
                 // decryption causing mkm initalization
                 // decrypt only if data has access_keys and show_secrets = true (no need to decrypt if show_secrets = false but should_filter = true)
