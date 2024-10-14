@@ -199,10 +199,8 @@ function _is_resource_fit(arn_path, statement) {
 }
 
 async function is_statement_fit_of_method_array(statements, account, method_arr, arn_path, req) {
-    const res_arr = [];
-    for (const method_permission of method_arr) {
-        res_arr.push(await _is_statements_fit(statements, account, method_permission, arn_path, req));
-    }
+    const res_arr = await Promise.all(method_arr.map(method_permission =>
+        _is_statements_fit(statements, account, method_permission, arn_path, req)));
     return res_arr;
 }
 
