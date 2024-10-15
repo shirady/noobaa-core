@@ -758,7 +758,7 @@ class NamespaceS3 {
             Bucket: this.bucket,
             Key: params.key,
             VersionId: params.version_id,
-            ObjectAttributes: [params.attributes.join(',')],
+            ObjectAttributes: params.attributes,
         };
         this._set_md_conditions(params, request);
         this._assign_encryption_to_request(params, request);

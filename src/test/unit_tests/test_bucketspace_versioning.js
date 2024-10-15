@@ -1013,7 +1013,7 @@ mocha.describe('bucketspace namespace_fs - versioning', function() {
                 Bucket: bucket_name,
                 Key: key,
                 VersionId: version_id,
-                ObjectAttributes: ['ETag,ObjectSize,StorageClass'],
+                ObjectAttributes: ['ETag', 'ObjectSize', 'StorageClass'],
             });
             assert.ok(res.$metadata.httpStatusCode === 200);
             assert.ok(res.ETag !== undefined);
@@ -1050,7 +1050,7 @@ mocha.describe('bucketspace namespace_fs - versioning', function() {
                 Bucket: bucket_name,
                 Key: key,
                 VersionId: version_id,
-                ObjectAttributes: ['ETag,ObjectSize,StorageClass'],
+                ObjectAttributes: ['ETag', 'ObjectSize', 'StorageClass'],
             });
             assert.ok(res.$metadata.httpStatusCode === 200);
             assert.equal(res.$metadata.headers['x-amz-version-id'], version_id);

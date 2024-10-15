@@ -41,7 +41,7 @@ function _parse_attributes(req) {
             s3_utils.OBJECT_ATTRIBUTES);
         throw new S3Error(S3Error.InvalidArgument);
     }
-    const attributes = attributes_str.split(',');
+    const attributes = attributes_str.split(',').map(item => item.trim());
     const all_valid = attributes.every(item => s3_utils.OBJECT_ATTRIBUTES.includes(item));
     if (!all_valid) {
         dbg.error('get_object_attributes: received attributes:', attributes,
