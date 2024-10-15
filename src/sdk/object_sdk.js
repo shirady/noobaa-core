@@ -1122,7 +1122,9 @@ class ObjectSDK {
           } else {
             // fallback to calling get_object_md without attributes params
             dbg.warn('namespace does not implement get_object_attributes action, fallback to read_object_md');
-            return ns.read_object_md({ ...params, attributes: undefined }, this);
+            const md_params = { ...params };
+            delete md_params.attributes; // not part of the schema of read_object_md
+            return ns.read_object_md(md_params, this);
           }
     }
 
