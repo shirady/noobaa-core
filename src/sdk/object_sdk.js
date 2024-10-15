@@ -1117,15 +1117,13 @@ class ObjectSDK {
 
     async get_object_attributes(params) {
         const ns = await this._get_bucket_namespace(params.bucket);
-        try {
+        if (ns.get_object_attributes) {
             return ns.get_object_attributes(params, this);
-        } catch (err) {
-            if (err instanceof TypeError &&
-                err.message.includes('get_object_attributes is not a function')) {
-                    delete params.attributes; // not part of the schema of read_object_md
-                    return ns.read_object_md(params, this);
-                }
-        }
+          } else {
+            // fallback to calling get_object_md without attributes params
+            dbg.warn('namespace does not implement get_object_attributes action, fallback to read_object_md');
+            return ns.read_object_md({ ...params, attributes: undefined }, this);
+          }
     }
 
 }

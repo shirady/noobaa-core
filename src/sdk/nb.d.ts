@@ -5,6 +5,7 @@ import * as mongodb from 'mongodb';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { IncomingMessage, ServerResponse } from 'http';
+import { ObjectPart, Checksum} from '@aws-sdk/client-s3';
 
 type Semaphore = import('../util/semaphore');
 type KeysSemaphore = import('../util/keys_semaphore');
@@ -439,6 +440,8 @@ interface ObjectInfo {
     ns?: Namespace;
     storage_class?: StorageClass;
     restore_status?: { ongoing?: boolean; expiry_time?: Date; };
+    checksum?: Checksum;
+    object_parts?: GetObjectAttributesParts;
 }
 
 
@@ -1127,3 +1130,20 @@ interface RestoreStatus {
   ongoing?: boolean;
   expiry_time?: Date;
 }
+
+/**********************************************************
+ *
+ * OTHER - S3 Structure
+ *
+ **********************************************************/
+
+// Since the interface is a bit different between the SDKs
+// we couldn't import and reuse
+interface GetObjectAttributesParts {
+    TotalPartsCount?: number;
+    PartNumberMarker?: string; // in AWS SDK V2 it is number
+    NextPartNumberMarker?: string; // in AWS SDK V2 it is number
+    MaxParts?: number;
+    IsTruncated?: boolean;
+    Parts?: ObjectPart[];
+  }

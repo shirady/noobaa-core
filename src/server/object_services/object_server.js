@@ -785,16 +785,9 @@ async function read_object_md(req) {
     const obj = await find_object_md(req);
 
     // Check if the requesting account is authorized to read the object
-    if (version_id) {
-        const permission_versioning_enabled = await req.has_s3_bucket_permission(req.bucket, 's3:GetObjectVersion', '/' + obj.key);
-        if (!permission_versioning_enabled) {
-            throw new RpcError('UNAUTHORIZED', 'requesting account is not authorized to read the object');
-        }
-    } else {
-        const permission_versioning_disabled = await req.has_s3_bucket_permission(req.bucket, 's3:GetObject', '/' + obj.key);
-        if (!permission_versioning_disabled) {
-            throw new RpcError('UNAUTHORIZED', 'requesting account is not authorized to read the object');
-        }
+    const action = version_id ? 's3:GetObjectVersion' : 's3:GetObject';
+    if (!await req.has_s3_bucket_permission(req.bucket, action, '/' + obj.key)) {
+        throw new RpcError('UNAUTHORIZED', 'requesting account is not authorized to read the object');
     }
 
     check_md_conditions(md_conditions, obj);

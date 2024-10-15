@@ -793,7 +793,8 @@ class NamespaceS3 {
      *   AWS.S3.ObjectVersion &
      *   AWS.S3.DeleteMarkerEntry &
      *   AWS.S3.MultipartUpload &
-     *   AWS.S3.GetObjectOutput
+     *   AWS.S3.GetObjectOutput &
+     *   AWS.S3.GetObjectAttributesOutput
      * >, 'ChecksumAlgorithm'>} res 
      * @param {string} bucket 
      * @param {number} [part_number]
@@ -833,7 +834,10 @@ class NamespaceS3 {
             sha256_b64: undefined,
             stats: undefined,
             tagging: undefined,
-            object_owner: this._get_object_owner()
+            object_owner: this._get_object_owner(),
+            checksum: res.Checksum,
+            // @ts-ignore // See note in GetObjectAttributesParts in file nb.d.ts
+            object_parts: res.ObjectParts,
         };
     }
 

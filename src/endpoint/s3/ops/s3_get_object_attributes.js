@@ -3,7 +3,6 @@
 
 const dbg = require('../../../util/debug_module')(__filename);
 const s3_utils = require('../s3_utils');
-const time_utils = require('../../../util/time_utils');
 const http_utils = require('../../../util/http_utils');
 const S3Error = require('../s3_errors').S3Error;
 
@@ -12,7 +11,7 @@ const S3Error = require('../s3_errors').S3Error;
  */
 async function get_object_attributes(req, res) {
     const version_id = s3_utils.parse_version_id(req.query.versionId);
-    const encryption = _parse_encryption_headers(req);
+    const encryption = s3_utils.parse_encryption(req);
     const attributes = _parse_attributes(req);
 
     const params = {
@@ -25,27 +24,8 @@ async function get_object_attributes(req, res) {
     };
     dbg.log2('params after parsing', params);
     const reply = await req.object_sdk.get_object_attributes(params);
-    _set_response_headers(req, res, reply, version_id);
-    return _parse_reply_according_to_attributes(reply, attributes);
-}
-
-/**
- * _parse_encryption_headers checks if the client added server side encryption headers and throws an error
- * in case the these are server side encryption customer headers those are parsed and returned
- * @param {nb.S3Request} req
- * @returns {object}
- */
-function _parse_encryption_headers(req) {
-    const algorithm = req.headers['x-amz-server-side-encryption'];
-    const key_b64 = req.headers[`x-amz-server-side-encryption-key`];
-    const key_md5_b64 = req.headers[`x-amz-server-side-encryption-key-md5`];
-    if (algorithm || key_b64 || key_md5_b64) {
-        dbg.error('get_object_attributes: The x-amz-server-side-encryption header is used on' +
-            'PUT object and it is not valid for GET request');
-        throw new S3Error(S3Error.BadRequest);
-    }
-    const encryption_customer = s3_utils.parse_sse_c(req);
-    return encryption_customer;
+    s3_utils.set_response_headers_get_object_attributes(req, res, reply, version_id);
+    return _make_reply_according_to_attributes(reply, attributes);
 }
 
 /**
@@ -71,33 +51,18 @@ function _parse_attributes(req) {
     return attributes;
 }
 
-function _set_response_headers(req, res, reply, version_id) {
-    if (version_id) {
-        res.setHeader('x-amz-version-id', version_id);
-        if (reply.delete_marker) {
-            res.setHeader('x-amz-delete-marker', 'true');
-        }
-    }
-    if (reply.last_modified_time) {
-        res.setHeader('Last-Modified', time_utils.format_http_header_date(new Date(reply.last_modified_time)));
-    } else {
-        res.setHeader('Last-Modified', time_utils.format_http_header_date(new Date(reply.create_time)));
-    }
-    s3_utils.set_encryption_response_headers(req, res, reply.encryption);
-}
-
 /**
- * _parse_reply_according_to_attributes currently the reply is md_object
+ * _make_reply_according_to_attributes currently the reply is md_object in most of the namespaces
  * and we return the properties according to the attributes the client asked for
  * @param {object} reply
  * @param {object} attributes
  * @returns {object}
  */
-function _parse_reply_according_to_attributes(reply, attributes) {
+function _make_reply_according_to_attributes(reply, attributes) {
     const reply_without_filter = {
         ETag: `"${reply.etag}"`,
-        // Checksum: '', // GAP
-        // ObjectParts: '', // GAP
+        Checksum: reply.checksum,
+        ObjectParts: reply.object_parts,
         StorageClass: reply.storage_class,
         ObjectSize: reply.size
     };
@@ -106,7 +71,11 @@ function _parse_reply_according_to_attributes(reply, attributes) {
         }
     };
     for (const key of attributes) {
-        if (key in reply_without_filter) {
+        if (reply_without_filter[key] === undefined) {
+            dbg.warn('Requested for attributes', attributes,
+                'but currently NooBaa does not support these attributes:',
+                s3_utils.OBJECT_ATTRIBUTES_UNSUPPORTED, '(expect namespace s3)');
+        } else {
             filtered_reply.GetObjectAttributesOutput[key] = reply_without_filter[key];
         }
     }
