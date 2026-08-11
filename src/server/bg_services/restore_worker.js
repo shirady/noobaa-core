@@ -203,7 +203,8 @@ class RestoreWorker {
     }
 
     /**
-     * Clears leftover or partial mappings before rewrite
+     * Clears leftover or partial STANDARD restore-copy parts before rewrite
+     * Does not delete multiparts so archive MPU multipart MD is preserved
      * Without clearing, a second upload_object_range can add another set of parts for the same ranges
      * @param {nb.ObjectMD} obj
      * @param {string} bucket_name
@@ -213,7 +214,7 @@ class RestoreWorker {
         if (!has_parts) return;
         dbg.log0('RestoreWorker: clearing previous restore-copy mappings before rewrite',
             { key: obj.key, obj_id: String(obj._id), bucket: bucket_name });
-        await map_deleter.delete_object_mappings(obj);
+        await map_deleter.delete_object_parts(obj);
     }
 
     /**
