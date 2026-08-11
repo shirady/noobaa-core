@@ -17,12 +17,20 @@ const P = require('../../util/promise');
 
 class RestoreWorker {
 
+    /**
+     * @param {{ name: string }} params
+     */
     constructor({ name }) {
         this.name = name;
         this.marker = undefined;
         this.object_io = new ObjectIO(); // for writing STANDARD restore copies
     }
 
+    /**
+     * Polls objects with restore_status.ongoing and completes restores whose
+     * archive copy is ready by writing a temporary STANDARD copy and updating MD
+     * @returns {Promise<number|undefined>} Delay in ms until the next batch
+     */
     async run_batch() {
         if (!this._can_run()) return;
 
@@ -49,6 +57,10 @@ class RestoreWorker {
         return next_marker ? config.RESTORE_WORKER_BATCH_DELAY : config.RESTORE_WORKER_EMPTY_DELAY;
     }
 
+    /**
+     * True when system_store is loaded and the system is not in maintenance
+     * @returns {boolean}
+     */
     _can_run() {
         if (!system_store.is_finished_initial_load) {
             dbg.log0('RestoreWorker: system_store did not finish initial load');
@@ -61,6 +73,11 @@ class RestoreWorker {
         return true;
     }
 
+    /**
+     * Builds one admin rpc_client for the batch and handles each ongoing object
+     * @param {nb.ObjectMD[]} ongoing_objects
+     * @returns {Promise<{ has_errors: boolean }>}
+     */
     async _handle_ongoing_restores(ongoing_objects) {
         const system = system_store.data.systems[0];
         const auth_token = auth_server.make_auth_token({
@@ -83,6 +100,11 @@ class RestoreWorker {
         return { has_errors };
     }
 
+    /**
+     * Checks archive restore status and writes the STANDARD restore copy when ready
+     * @param {nb.ObjectMD} obj
+     * @param {nb.APIClient} rpc_client
+     */
     async _handle_object_restore(obj, rpc_client) {
         const bucket = system_store.data.get_by_id(obj.bucket);
         if (!deep_archive_utils.is_remote_archive_object(obj, bucket)) {
@@ -108,10 +130,15 @@ class RestoreWorker {
         }
     }
 
-    // 1. general validations and prepare the params
-    // 2. in case of partial restore-copy, clear the previous restore-copy mappings (in case of retry)
-    // 3. data: upload the restore-copy from the archive to STANDARD storage class
-    // 4. metadata: update the restore_status (ongoing false + expiry_time)
+    /**
+     * Writes a temporary STANDARD restore copy from archive when needed, then
+     * sets restore_status to ongoing false with expiry_time
+     * Skips GetObject/rewrite when parts already fully cover the object (retry after MD failure)
+     * @param {nb.ObjectMD} obj
+     * @param {nb.Bucket} bucket
+     * @param {number} size
+     * @param {nb.APIClient} rpc_client
+     */
     async _write_standard_restore_copy(obj, bucket, size, rpc_client) {
         const params = await this._prepare_restore_copy(obj, bucket, size, rpc_client);
         const copy_complete = await this._has_complete_restore_copy(obj, params.object_size);
@@ -125,6 +152,14 @@ class RestoreWorker {
             { key: obj.key, obj_id: String(obj._id), bucket: params.bucket_name, size: params.object_size, expiry_time: expires_on });
     }
 
+    /**
+     * Validates restore days and size, and returns params for the restore-copy write
+     * @param {nb.ObjectMD} obj
+     * @param {nb.Bucket} bucket
+     * @param {number} size
+     * @param {nb.APIClient} rpc_client
+     * @returns {Promise<{ days: number, bucket_name: string, object_size: number, rpc_client: nb.APIClient }>}
+     */
     async _prepare_restore_copy(obj, bucket, size, rpc_client) {
         const days = obj.restore_status?.days;
         if (!days) {
@@ -144,6 +179,13 @@ class RestoreWorker {
         };
     }
 
+    /**
+     * True when committed parts cover [0, object_size) without gaps
+     * For size 0, true when the object has no parts
+     * @param {nb.ObjectMD} obj
+     * @param {number} object_size
+     * @returns {Promise<boolean>}
+     */
     async _has_complete_restore_copy(obj, object_size) {
         if (object_size === 0) {
             return !(await MDStore.instance().has_any_parts_for_object(obj));
@@ -160,8 +202,12 @@ class RestoreWorker {
         return covered_until >= object_size;
     }
 
-    // this function is used on retry of the restore-copy write
-    // without clearing, a second upload_object_range can add another set of parts for the same ranges
+    /**
+     * Clears leftover or partial mappings before rewrite
+     * Without clearing, a second upload_object_range can add another set of parts for the same ranges
+     * @param {nb.ObjectMD} obj
+     * @param {string} bucket_name
+     */
     async _clear_previous_restore_copy(obj, bucket_name) {
         const has_parts = await MDStore.instance().has_any_parts_for_object(obj);
         if (!has_parts) return;
@@ -170,6 +216,11 @@ class RestoreWorker {
         await map_deleter.delete_object_mappings(obj);
     }
 
+    /**
+     * Streams the restored archive object into NB as a STANDARD restore copy via upload_object_range
+     * @param {nb.ObjectMD} obj
+     * @param {{ bucket_name: string, object_size: number, rpc_client: nb.APIClient }} params
+     */
     async _upload_restore_copy_from_archive(obj, params) {
         const { bucket_name, object_size, rpc_client } = params;
         const source_stream = await archive_server.read_archive_object_stream({
@@ -197,8 +248,12 @@ class RestoreWorker {
         }
     }
 
+    /**
+     * Updates restore_status to ongoing false with expiry_time, with short retries
+     * @param {nb.APIClient} rpc_client
+     * @param {{ bucket_name: string, key: string, obj_id: nb.ID, expires_on: Date }} params
+     */
     async _update_restore_status(rpc_client, { bucket_name, key, obj_id, expires_on }) {
-        // Retries for update_object_md after a successful restore-copy write
         const RESTORE_MD_UPDATE_ATTEMPTS = 3;
         const RESTORE_MD_UPDATE_DELAY_MS = 500;
 
