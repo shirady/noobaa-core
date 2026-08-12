@@ -172,7 +172,8 @@ class ObjectIO {
         params.tier_id = obj_upload.tier_id;
         params.complete_upload = true;
         params.size = upload_params.end - upload_params.start;
-        params.seq = 0;
+        params.start = upload_params.start;
+        params.seq = params.seq ?? 0;
         params.bucket_master_key_id = obj_upload.bucket_master_key_id;
 
         try {

@@ -1373,6 +1373,7 @@ interface RestoreStatus {
     ongoing?: boolean;
     expiry_time?: Date;
     days?: number; // currently used in MSC only
+    restore_fail_count?: number; // currently used in MSC only
 
     tape_info?: TapeInfo[];
 }

@@ -156,6 +156,7 @@ module.exports = {
                 ongoing: { type: 'boolean' },
                 expiry_time: { date: true },
                 days: { type: 'integer' },
+                restore_fail_count: { type: 'integer' },
             }
         },
     }

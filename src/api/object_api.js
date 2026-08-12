@@ -1942,6 +1942,7 @@ module.exports = {
                 ongoing: { type: 'boolean' },
                 expiry_time: { idate: true },
                 days: { type: 'integer' },
+                restore_fail_count: { type: 'integer' },
             }
         },
     },
