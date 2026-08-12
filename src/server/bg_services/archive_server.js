@@ -153,7 +153,12 @@ async function check_archive_restore_status(req) {
             key: archive_key,
             use_head_object: true, // force use of HeadObject instead of GetObject
         }, undefined); // undefined for object_sdk (no need to update issues reporting)
-        const is_restored = Boolean(object_md.restore_status && !object_md.restore_status.ongoing);
+        // TEMP: RESTORE_WORKER_ASSUME_ARCHIVE_ALWAYS_ONLINE — remove after NC restore testing
+        // (todo: remove-nc-restore-hack). Forces ready on successful Head even if Restore says ongoing
+        // (plain NC may omit Restore, or return ongoing while GetObject already works).
+        // Real glacier: require Restore header with ongoing=false.
+        const is_restored = config.RESTORE_WORKER_ASSUME_ARCHIVE_ALWAYS_ONLINE ||
+            Boolean(object_md.restore_status && !object_md.restore_status.ongoing);
         return {
             is_restored,
             archive_key,
