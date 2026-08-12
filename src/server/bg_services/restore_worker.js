@@ -140,13 +140,25 @@ class RestoreWorker {
      * @param {nb.APIClient} rpc_client
      */
     async _write_standard_restore_copy(obj, bucket, size, rpc_client) {
+        dbg.log0('RestoreWorker: starting STANDARD restore copy write',
+            { key: obj.key, obj_id: String(obj._id), bucket: bucket.name.unwrap(), size });
+
         const params = await this._prepare_restore_copy(obj, bucket, size, rpc_client);
         const copy_complete = await this._has_complete_restore_copy(obj, params.object_size);
+        dbg.log0('RestoreWorker: restore-copy coverage check', { key: obj.key, obj_id: String(obj._id), copy_complete });
+
         if (!copy_complete) {
             await this._clear_previous_restore_copy(obj, params.bucket_name);
+            dbg.log0('RestoreWorker: uploading restore copy from archive',
+                { key: obj.key, obj_id: String(obj._id), bucket: params.bucket_name, size: params.object_size });
             await this._upload_restore_copy_from_archive(obj, params);
+            dbg.log0('RestoreWorker: restore copy upload finished',
+                { key: obj.key, obj_id: String(obj._id), bucket: params.bucket_name, size: params.object_size });
         }
+
         const expires_on = deep_archive_utils.compute_restore_expiry(params.days);
+        dbg.log0('RestoreWorker: updating restore_status',
+            { key: obj.key, obj_id: String(obj._id), bucket: params.bucket_name, expiry_time: expires_on });
         await this._update_restore_status(rpc_client, { bucket_name: params.bucket_name, key: obj.key, obj_id: obj._id, expires_on });
         dbg.log0('RestoreWorker: wrote STANDARD restore copy',
             { key: obj.key, obj_id: String(obj._id), bucket: params.bucket_name, size: params.object_size, expiry_time: expires_on });
@@ -224,11 +236,17 @@ class RestoreWorker {
      */
     async _upload_restore_copy_from_archive(obj, params) {
         const { bucket_name, object_size, rpc_client } = params;
+        dbg.log0('RestoreWorker: opening archive object stream',
+            { key: obj.key, obj_id: String(obj._id), bucket: bucket_name, size: object_size });
+
         const source_stream = await archive_server.read_archive_object_stream({
             bucket_id: obj.bucket,
             obj_id: obj._id,
             size: object_size,
         });
+
+        dbg.log0('RestoreWorker: archive stream opened, starting upload_object_range',
+            { key: obj.key, obj_id: String(obj._id), bucket: bucket_name, start: 0, end: object_size });
 
         try {
             await this.object_io.upload_object_range({
@@ -273,6 +291,8 @@ class RestoreWorker {
             error_logger: err => dbg.warn('RestoreWorker: update_object_md failed, retrying',
                 { key, obj_id: String(obj_id), bucket: bucket_name }, err),
         });
+        dbg.log0('RestoreWorker: restore_status updated',
+            { key, obj_id: String(obj_id), bucket: bucket_name, expiry_time: expires_on });
     }
 
 }
