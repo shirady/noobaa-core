@@ -27,6 +27,10 @@ const N2N_CONFIG_FIELDS_PICK = [
     'tcp_transient_passive',
     'tcp_simultaneous_open',
     'tcp_tls',
+    // kept for heartbeat / system.n2n_config equality until PR2 removes UDP from both sides
+    'udp_port',
+    'udp_dtls',
+    'stun_servers',
     'public_ips'
 ];
 
@@ -75,6 +79,12 @@ class RpcN2NAgent extends EventEmitter {
             tcp_transient_passive: false,
             tcp_simultaneous_open: false,
             tcp_tls: true,
+
+            // unused by n2n_connect (TCP/TLS only) but reported so core does not
+            // keep pushing system.n2n_config and resetting live N2N connections
+            udp_port: true,
+            udp_dtls: false,
+            stun_servers: [],
 
             public_ips: [],
 
