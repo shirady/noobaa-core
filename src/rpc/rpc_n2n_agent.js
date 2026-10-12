@@ -7,12 +7,10 @@ const tls = require('tls');
 // const dns = require('dns');
 // const url = require('url');
 
-const P = require('../util/promise');
 const dbg = require('../util/debug_module')(__filename);
 const config = require('../../config');
 const url_utils = require('../util/url_utils');
 const ssl_utils = require('../util/ssl_utils');
-const nb_native = require('../util/nb_native');
 const EventEmitter = require('events').EventEmitter;
 const RpcN2NConnection = require('./rpc_n2n');
 
@@ -29,9 +27,6 @@ const N2N_CONFIG_FIELDS_PICK = [
     'tcp_transient_passive',
     'tcp_simultaneous_open',
     'tcp_tls',
-    'udp_port',
-    'udp_dtls',
-    'stun_servers',
     'public_ips'
 ];
 
@@ -61,9 +56,6 @@ class RpcN2NAgent extends EventEmitter {
         // and returns back the info that was returned by the peer.
         const send_signal = options.send_signal;
 
-        // lazy loading of nb_native to use Nudp
-        const Nudp = nb_native().Nudp;
-
         // initialize the default config structure
         this.n2n_config = {
 
@@ -84,39 +76,18 @@ class RpcN2NAgent extends EventEmitter {
             tcp_simultaneous_open: false,
             tcp_tls: true,
 
-            // udp options
-            udp_port: true,
-            udp_dtls: false,
-
-            // TODO stun server to use for N2N ICE
-            // TODO Nudp require ip's, not hostnames, and also does not support IPv6 yet
-            stun_servers: [
-                // read_on_premise_stun_server()
-                // 'stun://64.233.184.127:19302' // === 'stun://stun.l.google.com:19302'
-            ],
-
             public_ips: [],
 
-            // ssl options - apply for both tcp-tls and udp-dtls
+            // ssl options for tcp-tls upgrade after N2N handshake
             ssl_options: {
                 // we allow self generated certificates to avoid public CA signing:
                 rejectUnauthorized: false,
                 secureContext: tls.createSecureContext({ honorCipherOrder: true, ...ssl_utils.generate_ssl_certificate() }),
             },
 
-            // callback to create and bind nudp socket
-            // TODO implement nudp dtls
-            udp_socket: (udp_port, dtls) => {
-                const nudp = new Nudp();
-                return P.ninvoke(nudp, 'bind', 0, '0.0.0.0').then(port => {
-                    nudp.port = port;
-                    return nudp;
-                });
-            },
-
             // signaller callback
-            // send ice info to the peer over a relayed signal channel
-            // in order to coordinate NAT traversal.
+            // send connect info to the peer over a relayed signal channel
+            // in order to coordinate P2P TCP connect.
             signaller: (target, info) => send_signal({
                 source: this.rpc_address,
                 target: target,

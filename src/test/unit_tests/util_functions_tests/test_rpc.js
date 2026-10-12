@@ -488,7 +488,6 @@ mocha.describe('RPC', function() {
             max: 50500,
         },
         tcp_tls: false,
-        udp_port: false,
     }));
     mocha.it('N2N TLS', n2n_tester({
         tcp_active: true,
@@ -497,7 +496,6 @@ mocha.describe('RPC', function() {
             max: 50500,
         },
         tcp_tls: true,
-        udp_port: false,
     }));
 
     function n2n_tester(n2n_config) {
