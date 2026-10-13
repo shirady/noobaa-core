@@ -74,6 +74,16 @@ function gather_wss_endpoints(n2n_config) {
 }
 
 /**
+ * Parse hostname from a wss endpoint, without IPv6 URL brackets
+ * @param {string} endpoint
+ * @returns {string}
+ */
+function hostname_from_endpoint(endpoint) {
+    const { hostname } = new URL(endpoint);
+    return hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
+}
+
+/**
  * Sort endpoints preferring private IPs (same idea as ICE candidate priority)
  * @param {string[]} endpoints
  * @returns {string[]}
@@ -89,9 +99,7 @@ function sort_endpoints(endpoints) {
  */
 function endpoint_priority(endpoint) {
     try {
-        const { hostname } = new URL(endpoint);
-        const address = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
-        return net_utils.is_private(address) ? 1000 : 0;
+        return net_utils.is_private(hostname_from_endpoint(endpoint)) ? 1000 : 0;
     } catch (err) {
         return 0;
     }
@@ -106,8 +114,7 @@ function endpoint_priority(endpoint) {
 function filter_acceptable_endpoints(endpoints, n2n_config) {
     return endpoints.filter(endpoint => {
         try {
-            const { hostname } = new URL(endpoint);
-            const address = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
+            const address = hostname_from_endpoint(endpoint);
             if (net.isIPv4(address) && n2n_config.accept_ipv4 === false) return false;
             if (net.isIPv6(address) && n2n_config.accept_ipv6 === false) return false;
             return true;
