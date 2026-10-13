@@ -161,6 +161,10 @@ config.MONGO_AGENTS_N2N_PORT = 60100;
 
 config.N2N_OFFER_INTERNAL = false;
 
+// When true, use legacy ICE for n2n peers (instead of WSS).
+// All agents and core n2n clients must use the same value (no mixed wire protocol).
+config.ROLLBACK_TO_ICE = process.env.ROLLBACK_TO_ICE === 'true';
+
 /////////////////////
 // ENDPOINT CONFIG //
 /////////////////////

@@ -507,6 +507,9 @@ class Agent {
 
         // in any case we stop
         this.n2n_agent.reset_rpc_address();
+        if (!config.ROLLBACK_TO_ICE) {
+            this.n2n_agent.stop_wss_server();
+        }
         if (this.server) {
             this.server.close();
             this.server = null;
@@ -524,6 +527,26 @@ class Agent {
         const addr_url = url_utils.quick_parse(this.rpc_address);
         if (addr_url.protocol === 'n2n:') {
             this.n2n_agent.set_rpc_address(addr_url.href);
+            // WSS transport: also listen HTTPS+WSS on rpc_port for peer dials.
+            // ICE transport: no agent listen here (ICE opens TCP passive ports itself).
+            if (!config.ROLLBACK_TO_ICE) {
+                const https_server = https.createServer(this.ssl_context)
+                    .on('error', err => {
+                        dbg.error('AGENT N2N HTTPS SERVER ERROR', err.stack || err);
+                        https_server.close();
+                    })
+                    .on('close', () => {
+                        dbg.warn('AGENT N2N HTTPS SERVER CLOSED');
+                        // ignore close of a server we already replaced in _start_stop_server
+                        if (this.server !== https_server) return;
+                        this.server = null;
+                        this.n2n_agent.stop_wss_server();
+                        retry();
+                    })
+                    .listen(this.rpc_port);
+                this.n2n_agent.start_wss_server(https_server, this.rpc_port);
+                this.server = https_server;
+            }
         } else if (addr_url.protocol === 'ws:' || addr_url.protocol === 'http:') {
             const http_server = http.createServer()
                 .on('error', err => {

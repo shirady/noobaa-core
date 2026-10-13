@@ -1,13 +1,16 @@
 /* Copyright (C) 2016 NooBaa */
-/*eslint max-lines-per-function: ["error", 520]*/
+/*eslint max-lines-per-function: ["error", 600]*/
 'use strict';
 
 process.env.DEBUG_MODE = true;
 
 const _ = require('lodash');
+const https = require('https');
+const { once } = require('events');
 const mocha = require('mocha');
 const assert = require('assert');
 
+const config = require('../../../../config');
 const ssl_utils = require('../../../util/ssl_utils');
 const { RPC, RpcError, RpcSchema, RPC_BUFFERS } = require('../../../rpc');
 
@@ -473,57 +476,106 @@ mocha.describe('RPC', function() {
         }
     });
 
-    mocha.it('N2N DEFAULT', n2n_tester());
-    // mocha.it('N2N UDP', n2n_tester({
-    //     udp_port: true,
-    //     tcp_active: false,
-    //     tcp_permanent_passive: false,
-    //     tcp_transient_passive: false,
-    //     tcp_simultaneous_open: false,
-    // }));
-    mocha.it('N2N TCP', n2n_tester({
-        tcp_active: true,
-        tcp_permanent_passive: {
-            min: 40400,
-            max: 50500,
-        },
-        tcp_tls: false,
-        udp_port: false,
-    }));
-    mocha.it('N2N TLS', n2n_tester({
-        tcp_active: true,
-        tcp_permanent_passive: {
-            min: 40400,
-            max: 50500,
-        },
-        tcp_tls: true,
-        udp_port: false,
-    }));
+    mocha.describe('N2N transports', function() {
+        let rollback_prev;
 
-    function n2n_tester(n2n_config) {
-        return function() {
+        mocha.beforeEach(function() {
+            rollback_prev = config.ROLLBACK_TO_ICE;
+        });
+
+        // Close connections while ROLLBACK_TO_ICE still matches this test, then restore.
+        // Avoids async closes from the previous test running under the next test's flag.
+        mocha.afterEach(async function() {
+            if (rpc) rpc.disconnect_all();
+            await new Promise(resolve => setImmediate(resolve));
+            config.ROLLBACK_TO_ICE = rollback_prev;
+        });
+
+        mocha.it('N2N WSS', async function() {
+            config.ROLLBACK_TO_ICE = false;
             rpc.register_service(test_api, make_server());
-            let tcp_server;
             const ADDR = 'n2n://testrpc';
             const n2n_agent = rpc.register_n2n_agent(params => rpc.accept_n2n_signal(params));
             n2n_agent.set_rpc_address(ADDR);
-            n2n_agent.update_n2n_config(n2n_config);
-            return rpc.register_tcp_transport(0)
-                .then(tcp_server_arg => {
-                    tcp_server = tcp_server_arg;
+            // Unit test runs dialer+acceptor in-process; allow loopback endpoints.
+            n2n_agent.update_n2n_config({ offer_internal: true });
+
+            const https_server = https.createServer(ssl_utils.generate_ssl_certificate());
+            https_server.listen(0);
+            await once(https_server, 'listening');
+            const { port } = https_server.address();
+            n2n_agent.start_wss_server(https_server, port);
+
+            try {
+                const n2n_client = rpc.new_client({
+                    address: ADDR
+                });
+                return await n2n_client.test.get(_.cloneDeep(PARAMS));
+            } finally {
+                // Close N2N conns under ROLLBACK_TO_ICE=false before tearing down listen
+                rpc.disconnect_all();
+                n2n_agent.stop_wss_server();
+                https_server.close();
+            }
+        });
+
+        // mocha.it('N2N UDP', n2n_ice_tester({
+        //     udp_port: true,
+        //     tcp_active: false,
+        //     tcp_permanent_passive: false,
+        //     tcp_transient_passive: false,
+        //     tcp_simultaneous_open: false,
+        // }));
+        mocha.it('N2N ICE TCP', n2n_ice_tester({
+            tcp_active: true,
+            tcp_permanent_passive: {
+                min: 40400,
+                max: 50500,
+            },
+            tcp_tls: false,
+            udp_port: false,
+        }));
+
+        mocha.it('N2N ICE TLS', n2n_ice_tester({
+            tcp_active: true,
+            tcp_permanent_passive: {
+                min: 40400,
+                max: 50500,
+            },
+            tcp_tls: true,
+            udp_port: false,
+        }));
+
+        /**
+         * Run an N2N RPC call over legacy ICE with ROLLBACK_TO_ICE enabled for the test
+         * @param {object} n2n_config
+         * @returns {function(): Promise}
+         */
+        function n2n_ice_tester(n2n_config) {
+            return async function() {
+                config.ROLLBACK_TO_ICE = true;
+                rpc.register_service(test_api, make_server());
+                let tcp_server;
+                const ADDR = 'n2n://testrpc';
+                const n2n_agent = rpc.register_n2n_agent(params => rpc.accept_n2n_signal(params));
+                n2n_agent.set_rpc_address(ADDR);
+                n2n_agent.update_n2n_config(n2n_config);
+                try {
+                    tcp_server = await rpc.register_tcp_transport(0);
                     const n2n_client = rpc.new_client({
                         address: ADDR
                     });
-                    return n2n_client.test.get(_.cloneDeep(PARAMS));
-                })
-                .finally(() => {
+                    return await n2n_client.test.get(_.cloneDeep(PARAMS));
+                } finally {
+                    // Close N2N conns under ROLLBACK_TO_ICE=true before resetting port config
+                    rpc.disconnect_all();
                     if (tcp_server) tcp_server.close();
-                    // reset the n2n config to close any open ports
                     n2n_agent.update_n2n_config({
                         tcp_permanent_passive: false
                     });
-                });
-        };
-    }
+                }
+            };
+        }
+    });
 
 });
