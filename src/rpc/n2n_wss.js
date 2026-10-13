@@ -9,6 +9,7 @@ const WS = require('ws');
 const dbg = require('../util/debug_module')(__filename);
 const net_utils = require('../util/net_utils');
 const http_utils = require('../util/http_utils');
+const url_utils = require('../util/url_utils');
 
 const SESSION_QUERY_PARAM = 'n2n_session_id';
 
@@ -31,7 +32,11 @@ function gather_wss_endpoints(n2n_config) {
     function add_endpoint(address) {
         if (!address || seen.has(address)) return;
         seen.add(address);
-        endpoints.push(format_wss_endpoint(address, port));
+        endpoints.push(url_utils.construct_url({
+            protocol: 'wss',
+            hostname: address,
+            port,
+        }).href);
     }
 
     let ifaces_by_name;
@@ -66,17 +71,6 @@ function gather_wss_endpoints(n2n_config) {
     }
 
     return sort_endpoints(endpoints);
-}
-
-/**
- * Format a wss:// URL for the given address and port
- * @param {string} address
- * @param {number|string} port
- * @returns {string}
- */
-function format_wss_endpoint(address, port) {
-    const hostname = net.isIPv6(address) ? `[${address}]` : address;
-    return `wss://${hostname}:${port}`;
 }
 
 /**
