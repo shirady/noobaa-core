@@ -5,6 +5,7 @@
 process.env.DEBUG_MODE = true;
 
 const _ = require('lodash');
+const https = require('https');
 const mocha = require('mocha');
 const assert = require('assert');
 
@@ -474,55 +475,37 @@ mocha.describe('RPC', function() {
     });
 
     mocha.it('N2N DEFAULT', n2n_tester());
-    // mocha.it('N2N UDP', n2n_tester({
-    //     udp_port: true,
-    //     tcp_active: false,
-    //     tcp_permanent_passive: false,
-    //     tcp_transient_passive: false,
-    //     tcp_simultaneous_open: false,
-    // }));
-    mocha.it('N2N TCP', n2n_tester({
-        tcp_active: true,
-        tcp_permanent_passive: {
-            min: 40400,
-            max: 50500,
-        },
-        tcp_tls: false,
-        udp_port: false,
-    }));
-    mocha.it('N2N TLS', n2n_tester({
-        tcp_active: true,
-        tcp_permanent_passive: {
-            min: 40400,
-            max: 50500,
-        },
-        tcp_tls: true,
-        udp_port: false,
+    mocha.it('N2N WSS', n2n_tester({
+        offer_internal: true,
     }));
 
     function n2n_tester(n2n_config) {
-        return function() {
+        return async function() {
             rpc.register_service(test_api, make_server());
-            let tcp_server;
             const ADDR = 'n2n://testrpc';
             const n2n_agent = rpc.register_n2n_agent(params => rpc.accept_n2n_signal(params));
             n2n_agent.set_rpc_address(ADDR);
-            n2n_agent.update_n2n_config(n2n_config);
-            return rpc.register_tcp_transport(0)
-                .then(tcp_server_arg => {
-                    tcp_server = tcp_server_arg;
-                    const n2n_client = rpc.new_client({
-                        address: ADDR
-                    });
-                    return n2n_client.test.get(_.cloneDeep(PARAMS));
-                })
-                .finally(() => {
-                    if (tcp_server) tcp_server.close();
-                    // reset the n2n config to close any open ports
-                    n2n_agent.update_n2n_config({
-                        tcp_permanent_passive: false
-                    });
+            n2n_agent.update_n2n_config({
+                offer_internal: true,
+                ...n2n_config,
+            });
+
+            const https_server = https.createServer(ssl_utils.generate_ssl_certificate());
+            await new Promise((resolve, reject) => {
+                https_server.listen(0, err => (err ? reject(err) : resolve()));
+            });
+            const { port } = https_server.address();
+            n2n_agent.start_wss_server(https_server, port);
+
+            try {
+                const n2n_client = rpc.new_client({
+                    address: ADDR
                 });
+                return await n2n_client.test.get(_.cloneDeep(PARAMS));
+            } finally {
+                n2n_agent.stop_wss_server();
+                https_server.close();
+            }
         };
     }
 
