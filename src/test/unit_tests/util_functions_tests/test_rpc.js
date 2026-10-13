@@ -6,6 +6,7 @@ process.env.DEBUG_MODE = true;
 
 const _ = require('lodash');
 const https = require('https');
+const { once } = require('events');
 const mocha = require('mocha');
 const assert = require('assert');
 
@@ -474,39 +475,29 @@ mocha.describe('RPC', function() {
         }
     });
 
-    mocha.it('N2N DEFAULT', n2n_tester());
-    mocha.it('N2N WSS', n2n_tester({
-        offer_internal: true,
-    }));
+    mocha.it('N2N WSS', async function() {
+        rpc.register_service(test_api, make_server());
+        const ADDR = 'n2n://testrpc';
+        const n2n_agent = rpc.register_n2n_agent(params => rpc.accept_n2n_signal(params));
+        n2n_agent.set_rpc_address(ADDR);
+        // Unit test runs dialer+acceptor in-process; allow loopback endpoints.
+        n2n_agent.update_n2n_config({ offer_internal: true });
 
-    function n2n_tester(n2n_config) {
-        return async function() {
-            rpc.register_service(test_api, make_server());
-            const ADDR = 'n2n://testrpc';
-            const n2n_agent = rpc.register_n2n_agent(params => rpc.accept_n2n_signal(params));
-            n2n_agent.set_rpc_address(ADDR);
-            n2n_agent.update_n2n_config({
-                offer_internal: true,
-                ...n2n_config,
+        const https_server = https.createServer(ssl_utils.generate_ssl_certificate());
+        https_server.listen(0);
+        await once(https_server, 'listening');
+        const { port } = https_server.address();
+        n2n_agent.start_wss_server(https_server, port);
+
+        try {
+            const n2n_client = rpc.new_client({
+                address: ADDR
             });
-
-            const https_server = https.createServer(ssl_utils.generate_ssl_certificate());
-            await new Promise((resolve, reject) => {
-                https_server.listen(0, err => (err ? reject(err) : resolve()));
-            });
-            const { port } = https_server.address();
-            n2n_agent.start_wss_server(https_server, port);
-
-            try {
-                const n2n_client = rpc.new_client({
-                    address: ADDR
-                });
-                return await n2n_client.test.get(_.cloneDeep(PARAMS));
-            } finally {
-                n2n_agent.stop_wss_server();
-                https_server.close();
-            }
-        };
-    }
+            return await n2n_client.test.get(_.cloneDeep(PARAMS));
+        } finally {
+            n2n_agent.stop_wss_server();
+            https_server.close();
+        }
+    });
 
 });
