@@ -10,7 +10,6 @@ const WS = require('ws');
 
 const dbg = require('../util/debug_module')(__filename);
 const net_utils = require('../util/net_utils');
-const http_utils = require('../util/http_utils');
 const url_utils = require('../util/url_utils');
 
 const SESSION_QUERY_PARAM = 'n2n_session_id';
@@ -216,8 +215,9 @@ async function send_ws_message(ws, msg) {
  */
 async function dial_wss(n2n_conn, wss_url) {
     const ws = new WS(wss_url, [], {
-        // allow self-signed peer certs (agents generate their own)
-        agent: http_utils.get_unsecured_agent(wss_url),
+        // Same as ICE n2n_config.ssl_options.rejectUnauthorized: false —
+        // agents use self-signed certs, so peer TLS must not be verified.
+        rejectUnauthorized: false,
         perMessageDeflate: false,
     });
     try {
