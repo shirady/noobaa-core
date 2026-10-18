@@ -527,25 +527,23 @@ class Agent {
         const addr_url = url_utils.quick_parse(this.rpc_address);
         if (addr_url.protocol === 'n2n:') {
             this.n2n_agent.set_rpc_address(addr_url.href);
-            // WSS transport: also listen HTTPS+WSS on rpc_port for peer dials.
+            // WSS transport: join process-wide shared HTTPS+WSS on rpc_port.
+            // Hosted agents share one listen so they do not collide on AGENT_RPC_PORT.
             // ICE transport: no agent listen here (ICE opens TCP passive ports itself).
             if (!config.ROLLBACK_TO_ICE) {
-                const https_server = https.createServer(this.ssl_context)
-                    .on('error', err => {
-                        dbg.error('AGENT N2N HTTPS SERVER ERROR', err.stack || err);
-                        https_server.close();
-                    })
-                    .on('close', () => {
-                        dbg.warn('AGENT N2N HTTPS SERVER CLOSED');
-                        // ignore close of a server we already replaced in _start_stop_server
-                        if (this.server !== https_server) return;
-                        this.server = null;
-                        this.n2n_agent.stop_wss_server();
-                        retry();
-                    })
-                    .listen(this.rpc_port);
-                this.n2n_agent.start_wss_server(https_server, this.rpc_port);
-                this.server = https_server;
+                this.n2n_agent.start_shared_wss_listen(
+                    this.rpc_port,
+                    this.ssl_context,
+                    {
+                        on_close: () => {
+                            dbg.warn('AGENT N2N SHARED WSS CLOSED');
+                            retry();
+                        },
+                    }
+                ).catch(err => {
+                    dbg.error('AGENT N2N SHARED WSS START ERROR', err.stack || err);
+                    retry();
+                });
             }
         } else if (addr_url.protocol === 'ws:' || addr_url.protocol === 'http:') {
             const http_server = http.createServer()

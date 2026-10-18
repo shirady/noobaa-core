@@ -5,13 +5,12 @@
 process.env.DEBUG_MODE = true;
 
 const _ = require('lodash');
-const https = require('https');
-const { once } = require('events');
 const mocha = require('mocha');
 const assert = require('assert');
 
 const config = require('../../../../config');
 const ssl_utils = require('../../../util/ssl_utils');
+const RpcN2NAgent = require('../../../rpc/rpc_n2n_agent');
 const { RPC, RpcError, RpcSchema, RPC_BUFFERS } = require('../../../rpc');
 
 function log(...args) {
@@ -500,11 +499,18 @@ mocha.describe('RPC', function() {
             // Unit test runs dialer+acceptor in-process; allow loopback endpoints.
             n2n_agent.update_n2n_config({ offer_internal: true });
 
-            const https_server = https.createServer(ssl_utils.generate_ssl_certificate());
-            https_server.listen(0);
-            await once(https_server, 'listening');
-            const { port } = https_server.address();
-            n2n_agent.start_wss_server(https_server, port);
+            // Second agent joins the same process listen (hosted-agents style).
+            // register_n2n_agent only keeps one agent per RPC, so construct directly.
+            const n2n_agent_b = new RpcN2NAgent({
+                send_signal: params => rpc.accept_n2n_signal(params),
+            });
+            n2n_agent_b.set_rpc_address('n2n://testrpc-b');
+            n2n_agent_b.update_n2n_config({ offer_internal: true });
+
+            const ssl_context = ssl_utils.generate_ssl_certificate();
+            await n2n_agent.start_shared_wss_listen(0, ssl_context);
+            await n2n_agent_b.start_shared_wss_listen(0, ssl_context);
+            assert.strictEqual(n2n_agent.n2n_config.wss_port, n2n_agent_b.n2n_config.wss_port);
 
             try {
                 const n2n_client = rpc.new_client({
@@ -514,8 +520,8 @@ mocha.describe('RPC', function() {
             } finally {
                 // Close N2N conns under ROLLBACK_TO_ICE=false before tearing down listen
                 rpc.disconnect_all();
+                n2n_agent_b.stop_wss_server();
                 n2n_agent.stop_wss_server();
-                https_server.close();
             }
         });
 
