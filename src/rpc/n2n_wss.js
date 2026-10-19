@@ -285,18 +285,24 @@ async function connect(n2n_conn) {
 }
 
 /**
- * Acceptor side: register pending session and return local WSS info for the signal reply
+ * Acceptor side: wait for WSS listen, register pending session, return local endpoints
  * @param {object} n2n_conn
  * @param {object} remote_info
- * @returns {{ session_id: string, endpoints: string[] }}
+ * @returns {Promise<{ session_id: string, endpoints: string[] }>}
  */
-function accept(n2n_conn, remote_info) {
+async function accept(n2n_conn, remote_info) {
+    // Agent starts listen without awaiting; wait here so we do not advertise a dead port
+    await n2n_conn.n2n_agent.ensure_wss_listening();
     const session_id = crypto.randomBytes(16).toString('hex');
     n2n_conn.n2n_agent.register_pending_session(session_id, n2n_conn);
     const local_info = {
         session_id,
         endpoints: gather_wss_endpoints(n2n_conn.n2n_agent.n2n_config),
     };
+    if (!local_info.endpoints.length) {
+        n2n_conn.n2n_agent.unregister_pending_session_for_conn(n2n_conn);
+        throw new Error('N2N WSS NO LOCAL ENDPOINTS');
+    }
     dbg.log1('N2N WSS ACCEPT', session_id,
         'remote_session', remote_info && remote_info.session_id,
         'endpoints', local_info.endpoints,

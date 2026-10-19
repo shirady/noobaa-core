@@ -531,19 +531,23 @@ class Agent {
             // Hosted agents share one listen so they do not collide on AGENT_RPC_PORT.
             // ICE transport: no agent listen here (ICE opens TCP passive ports itself).
             if (!config.ROLLBACK_TO_ICE) {
-                this.n2n_agent.start_shared_wss_listen(
-                    this.rpc_port,
-                    this.ssl_context,
-                    {
-                        on_close: () => {
-                            dbg.warn('AGENT N2N SHARED WSS CLOSED');
-                            retry();
-                        },
+                (async () => {
+                    try {
+                        await this.n2n_agent.start_shared_wss_listen(
+                            this.rpc_port,
+                            this.ssl_context,
+                            {
+                                on_close: () => {
+                                    dbg.warn('AGENT N2N SHARED WSS CLOSED');
+                                    retry();
+                                },
+                            }
+                        );
+                    } catch (err) {
+                        dbg.error('AGENT N2N SHARED WSS START ERROR', err.stack || err);
+                        retry();
                     }
-                ).catch(err => {
-                    dbg.error('AGENT N2N SHARED WSS START ERROR', err.stack || err);
-                    retry();
-                });
+                })();
             }
         } else if (addr_url.protocol === 'ws:' || addr_url.protocol === 'http:') {
             const http_server = http.createServer()

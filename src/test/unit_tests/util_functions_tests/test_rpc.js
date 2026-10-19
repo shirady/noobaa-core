@@ -1,10 +1,11 @@
 /* Copyright (C) 2016 NooBaa */
-/*eslint max-lines-per-function: ["error", 600]*/
+/*eslint max-lines-per-function: ["error", 700]*/
 'use strict';
 
 process.env.DEBUG_MODE = true;
 
 const _ = require('lodash');
+const net = require('net');
 const mocha = require('mocha');
 const assert = require('assert');
 
@@ -493,35 +494,94 @@ mocha.describe('RPC', function() {
         mocha.it('N2N WSS', async function() {
             config.ROLLBACK_TO_ICE = false;
             rpc.register_service(test_api, make_server());
-            const ADDR = 'n2n://testrpc';
-            const n2n_agent = rpc.register_n2n_agent(params => rpc.accept_n2n_signal(params));
-            n2n_agent.set_rpc_address(ADDR);
+            const ADDR_A = 'n2n://testrpc';
+            const ADDR_B = 'n2n://testrpc-b';
+
+            // Route n2n_signal by target (core does this in production via nodes_monitor).
+            // Holder avoids TDZ while both agents share the same router closure.
+            const n2n_agents = {
+                /** @type {InstanceType<typeof RpcN2NAgent>} */
+                a: undefined,
+                /** @type {InstanceType<typeof RpcN2NAgent>} */
+                b: undefined,
+            };
+            /**
+             * Deliver signal to the agent that owns params.target
+             * @param {object} params
+             */
+            function route_n2n_signal(params) {
+                if (params.target === ADDR_B) return n2n_agents.b.accept_signal(params);
+                return n2n_agents.a.accept_signal(params);
+            }
+
+            n2n_agents.a = rpc.register_n2n_agent(params => route_n2n_signal(params));
+            n2n_agents.a.set_rpc_address(ADDR_A);
             // Unit test runs dialer+acceptor in-process; allow loopback endpoints.
-            n2n_agent.update_n2n_config({ offer_internal: true });
+            n2n_agents.a.update_n2n_config({ offer_internal: true });
 
             // Second agent joins the same process listen (hosted-agents style).
             // register_n2n_agent only keeps one agent per RPC, so construct directly.
-            const n2n_agent_b = new RpcN2NAgent({
-                send_signal: params => rpc.accept_n2n_signal(params),
+            n2n_agents.b = new RpcN2NAgent({
+                send_signal: params => route_n2n_signal(params),
             });
-            n2n_agent_b.set_rpc_address('n2n://testrpc-b');
-            n2n_agent_b.update_n2n_config({ offer_internal: true });
+            n2n_agents.b.set_rpc_address(ADDR_B);
+            n2n_agents.b.update_n2n_config({ offer_internal: true });
+            // Accept-side connections from peer dials must register on the same RPC.
+            n2n_agents.b.on('connection', conn => rpc._accept_new_connection(conn));
 
             const ssl_context = ssl_utils.generate_ssl_certificate();
-            await n2n_agent.start_shared_wss_listen(0, ssl_context);
-            await n2n_agent_b.start_shared_wss_listen(0, ssl_context);
-            assert.strictEqual(n2n_agent.n2n_config.wss_port, n2n_agent_b.n2n_config.wss_port);
+            await n2n_agents.a.start_shared_wss_listen(0, ssl_context);
+            await n2n_agents.b.start_shared_wss_listen(0, ssl_context);
+            assert.strictEqual(n2n_agents.a.n2n_config.wss_port, n2n_agents.b.n2n_config.wss_port);
 
             try {
-                const n2n_client = rpc.new_client({
-                    address: ADDR
-                });
-                return await n2n_client.test.get(_.cloneDeep(PARAMS));
+                // Peer path: dial A→B over shared WSS (session demux to agent B).
+                // Prefer peer over self-connect: self-connect orphans the dialer under the
+                // same n2n:// key when the accept side registers, which left open handles.
+                const n2n_client_b = rpc.new_client({ address: ADDR_B });
+                await n2n_client_b.test.get(_.cloneDeep(PARAMS));
             } finally {
                 // Close N2N conns under ROLLBACK_TO_ICE=false before tearing down listen
                 rpc.disconnect_all();
-                n2n_agent_b.stop_wss_server();
+                n2n_agents.b.stop_wss_server();
+                n2n_agents.a.stop_wss_server();
+                // Allow async ws/tls close to finish so mocha can exit without --exit
+                await new Promise(resolve => setImmediate(resolve));
+            }
+        });
+
+        mocha.it('N2N WSS port fallback on EADDRINUSE', async function() {
+            config.ROLLBACK_TO_ICE = false;
+            const range_min_prev = config.AGENT_RPC_PORT_RANGE_MIN;
+            const range_max_prev = config.AGENT_RPC_PORT_RANGE_MAX;
+
+            // Occupy one port (all interfaces, same as https.listen(port)), then ask WSS
+            // to start there with a tiny fallback range.
+            const blocker = net.createServer();
+            await new Promise((resolve, reject) => {
+                blocker.once('error', reject);
+                blocker.listen(0, resolve);
+            });
+            const occupied_port = blocker.address().port;
+            config.AGENT_RPC_PORT_RANGE_MIN = occupied_port;
+            config.AGENT_RPC_PORT_RANGE_MAX = occupied_port + 2;
+
+            const n2n_agent = new RpcN2NAgent({
+                send_signal: async () => {
+                    throw new Error('signal not used in listen test');
+                },
+            });
+            const ssl_context = ssl_utils.generate_ssl_certificate();
+            try {
+                const bound_port = await n2n_agent.start_shared_wss_listen(occupied_port, ssl_context);
+                assert.notStrictEqual(bound_port, occupied_port);
+                assert.ok(bound_port > occupied_port && bound_port <= occupied_port + 2);
+                assert.strictEqual(n2n_agent.n2n_config.wss_port, bound_port);
+            } finally {
                 n2n_agent.stop_wss_server();
+                config.AGENT_RPC_PORT_RANGE_MIN = range_min_prev;
+                config.AGENT_RPC_PORT_RANGE_MAX = range_max_prev;
+                await new Promise(resolve => blocker.close(resolve));
             }
         });
 

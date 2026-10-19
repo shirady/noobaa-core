@@ -37,7 +37,9 @@ const N2N_CONFIG_FIELDS_PICK = [
     'public_ips'
 ];
 
-const PENDING_SESSION_TIMEOUT_MS = 30 * 1000;
+// Match RPC connect timeout so the acceptor does not drop the pending session
+// while the dialer is still trying endpoints.
+const PENDING_SESSION_TIMEOUT_MS = config.RPC_CONNECT_TIMEOUT;
 
 let global_tcp_permanent_passive;
 
@@ -46,10 +48,12 @@ let global_tcp_permanent_passive;
  * Hosted agents in one process all join the same port (avoids EADDRINUSE on AGENT_RPC_PORT).
  * @type {{
  *   port: number,
- *   https_server: import('https').Server,
- *   ws_server: *,
+ *   https_server: import('https').Server | null,
+ *   ws_server: * | null,
  *   agents: Set<RpcN2NAgent>,
  *   listen_promise: Promise<number>,
+ *   resolve_listen: (port: number) => void,
+ *   reject_listen: (err: Error) => void,
  * } | null}
  */
 let shared_wss = null;
@@ -239,90 +243,131 @@ class RpcN2NAgent extends EventEmitter {
 
     /**
      * Join the process-wide shared HTTPS+WSS listen on port.
-     * First joiner creates the listen. Later joiners only register for session demux.
-     * Used by Agent for n2n:// so multiple hosted agents share AGENT_RPC_PORT.
+     * First joiner creates the listen (with EADDRINUSE fallback in the PV-pool range).
+     * Later joiners only register for session demux.
+     * Used by Agent for n2n:// so multiple hosted agents share one listen port.
      * @param {number|string} port
      * @param {import('https').ServerOptions} ssl_context
      * @param {{ on_close?: () => void }} [options]
      * @returns {Promise<number>} resolves to the bound port when listening
      */
-    start_shared_wss_listen(port, ssl_context, options) {
+    async start_shared_wss_listen(port, ssl_context, options) {
         this.stop_wss_server();
         const port_num = Number(port);
         this.n2n_config.wss_port = port_num;
         this._shared_wss_on_close = options && options.on_close;
 
         if (shared_wss) {
-            if (shared_wss.port !== port_num && port_num !== 0) {
-                const err = new Error(
-                    `N2N WSS SHARED PORT MISMATCH have ${shared_wss.port} want ${port_num}`);
-                err.stack = '';
-                throw err;
-            }
-            shared_wss.agents.add(this);
-            dbg.log0('N2N WSS JOINED SHARED listen on port', shared_wss.port,
-                'agents', shared_wss.agents.size);
-            return shared_wss.listen_promise.then(actual_port => {
-                this.n2n_config.wss_port = actual_port;
-                return actual_port;
-            });
+            return this._join_shared_wss(port_num);
         }
+        return this._create_shared_wss(port_num, ssl_context);
+    }
 
-        const https_server = https.createServer(ssl_context);
-        const ws_server = new WS.Server({
-            server: https_server,
-            perMessageDeflate: false,
-        });
-        ws_server.on('connection', (ws, req) => on_shared_wss_connection(ws, req));
-        ws_server.on('error', err => {
-            dbg.error('N2N WSS SHARED SERVER ERROR', err.stack || err);
-        });
-        https_server.on('error', err => {
-            dbg.error('N2N WSS SHARED HTTPS ERROR', err.stack || err);
-            https_server.close();
-        });
-        https_server.on('close', () => {
-            // Intentional last-leave already cleared shared_wss before close
-            if (!shared_wss || shared_wss.https_server !== https_server) return;
-            dbg.warn('N2N WSS SHARED HTTPS CLOSED unexpectedly');
-            const agents = [...shared_wss.agents];
-            shared_wss = null;
-            for (const agent of agents) {
-                agent._clear_pending_sessions('N2N WSS PENDING CANCELLED');
-                delete agent.n2n_config.wss_port;
-                const on_close = agent._shared_wss_on_close;
-                agent._shared_wss_on_close = null;
-                if (on_close) on_close();
-            }
-        });
+    /**
+     * Register on an existing shared listen and wait until it is bound
+     * @param {number} port_num
+     * @returns {Promise<number>} bound port
+     */
+    async _join_shared_wss(port_num) {
+        if (!can_join_shared_wss_port(port_num, shared_wss.port)) {
+            const err = new Error(
+                `N2N WSS SHARED PORT MISMATCH have ${shared_wss.port} want ${port_num}`);
+            err.stack = '';
+            throw err;
+        }
+        shared_wss.agents.add(this);
+        dbg.log0('N2N WSS JOINED SHARED listen on port', shared_wss.port,
+            'agents', shared_wss.agents.size);
+        const actual_port = await shared_wss.listen_promise;
+        this.n2n_config.wss_port = actual_port;
+        return actual_port;
+    }
 
-        const listen_promise = once(https_server, 'listening').then(() => {
-            if (!shared_wss || shared_wss.https_server !== https_server) {
-                return port_num;
-            }
-            const addr = https_server.address();
-            const actual_port = (addr && typeof addr === 'object') ? addr.port : port_num;
-            shared_wss.port = actual_port;
-            for (const agent of shared_wss.agents) {
-                agent.n2n_config.wss_port = actual_port;
-            }
-            dbg.log0('N2N WSS SHARED SERVER STARTED on port', actual_port);
-            return actual_port;
+    /**
+     * Create the process-wide shared listen. Publishes listen_promise before bind
+     * so other agents can join and wait on the same Promise.
+     * @param {number} port_num
+     * @param {import('https').ServerOptions} ssl_context
+     * @returns {Promise<number>} bound port
+     */
+    async _create_shared_wss(port_num, ssl_context) {
+        /** @type {(port: number) => void} */
+        let resolve_listen;
+        /** @type {(err: Error) => void} */
+        let reject_listen;
+        const listen_promise = new Promise((resolve, reject) => {
+            resolve_listen = resolve;
+            reject_listen = reject;
         });
-        // Prevent unhandled rejection when caller does not await (Agent path)
+        // Avoid unhandled rejection if a caller does not await
         listen_promise.catch(err => {
             dbg.error('N2N WSS SHARED LISTEN FAILED', err.stack || err);
         });
 
-        https_server.listen(port_num);
         shared_wss = {
             port: port_num,
-            https_server,
-            ws_server,
+            https_server: null,
+            ws_server: null,
             agents: new Set([this]),
             listen_promise,
+            resolve_listen,
+            reject_listen,
         };
-        return listen_promise;
+
+        try {
+            const { https_server, ws_server, actual_port } =
+                await bind_shared_wss_with_port_fallback(port_num, ssl_context);
+
+            if (!shared_wss || shared_wss.listen_promise !== listen_promise) {
+                // Last agent left while binding, or listen was superseded
+                close_silent(ws_server);
+                close_silent(https_server);
+                return listen_promise;
+            }
+
+            shared_wss.https_server = https_server;
+            shared_wss.ws_server = ws_server;
+            shared_wss.port = actual_port;
+            register_shared_wss_server_events(https_server, ws_server);
+            for (const agent of shared_wss.agents) {
+                agent.n2n_config.wss_port = actual_port;
+            }
+            dbg.log0('N2N WSS SHARED SERVER STARTED on port', actual_port);
+            resolve_listen(actual_port);
+            return actual_port;
+        } catch (err) {
+            if (shared_wss && shared_wss.listen_promise === listen_promise) {
+                const agents = [...shared_wss.agents];
+                shared_wss = null;
+                for (const agent of agents) {
+                    agent._clear_pending_sessions('N2N WSS PENDING CANCELLED');
+                    delete agent.n2n_config.wss_port;
+                }
+            }
+            reject_listen(err);
+            throw err;
+        }
+    }
+
+    /**
+     * Wait until this agent is on a shared WSS listen that has finished binding.
+     * Used by accept so endpoints are not advertised before the socket is listening.
+     * @returns {Promise<number>} bound port
+     */
+    async ensure_wss_listening() {
+        if (!shared_wss || !shared_wss.agents.has(this)) {
+            const err = new Error('N2N WSS NOT LISTENING');
+            err.stack = '';
+            throw err;
+        }
+        const actual_port = await shared_wss.listen_promise;
+        if (!shared_wss || !shared_wss.agents.has(this)) {
+            const err = new Error('N2N WSS NOT LISTENING');
+            err.stack = '';
+            throw err;
+        }
+        this.n2n_config.wss_port = actual_port;
+        return actual_port;
     }
 
     /**
@@ -344,18 +389,18 @@ class RpcN2NAgent extends EventEmitter {
         dbg.log0('N2N WSS LEFT SHARED listen on port', shared_wss.port,
             'agents', shared_wss.agents.size);
         if (shared_wss.agents.size > 0) return;
-        const { https_server, ws_server, port } = shared_wss;
+        const { https_server, ws_server, port, reject_listen } = shared_wss;
+        const still_binding = !https_server;
         shared_wss = null;
-        try {
-            ws_server.close();
-        } catch (err) {
-            dbg.warn('N2N WSS SHARED WS CLOSE ERROR', err.message || err);
+        if (still_binding) {
+            // Cancel in-flight bind so listen_promise does not hang
+            const err = new Error('N2N WSS LISTEN CANCELLED');
+            err.stack = '';
+            reject_listen(err);
+            dbg.log0('N2N WSS SHARED LISTEN CANCELLED on port', port);
+            return;
         }
-        try {
-            https_server.close();
-        } catch (err) {
-            dbg.warn('N2N WSS SHARED HTTPS CLOSE ERROR', err.message || err);
-        }
+        force_close_shared_wss_servers(https_server, ws_server);
         dbg.log0('N2N WSS SHARED SERVER CLOSED on port', port);
     }
 
@@ -468,6 +513,148 @@ class RpcN2NAgent extends EventEmitter {
 }
 
 /**
+ * True if an agent requesting want_port may join the existing shared listen on have_port.
+ * Allows: same port; want_port 0 (any existing listen, used in tests);
+ * or both ports in AGENT_RPC_PORT_RANGE (60101-60600) so agents still share
+ * one listen after EADDRINUSE moved the bound port.
+ * @param {number} want_port
+ * @param {number} have_port
+ * @returns {boolean}
+ */
+function can_join_shared_wss_port(want_port, have_port) {
+    if (want_port === 0) return true;
+    if (want_port === have_port) return true;
+    const min = config.AGENT_RPC_PORT_RANGE_MIN;
+    const max = config.AGENT_RPC_PORT_RANGE_MAX;
+    return want_port >= min && want_port <= max && have_port >= min && have_port <= max;
+}
+
+/**
+ * Bind HTTPS+WSS on one port
+ * @param {number} port
+ * @param {import('https').ServerOptions} ssl_context
+ * @returns {Promise<{
+ *   https_server: import('https').Server,
+ *   ws_server: *,
+ *   actual_port: number,
+ * }>}
+ */
+async function try_listen_shared_wss(port, ssl_context) {
+    const https_server = https.createServer(ssl_context);
+    const ws_server = new WS.Server({
+        server: https_server,
+        perMessageDeflate: false,
+    });
+    ws_server.on('connection', (ws, req) => on_shared_wss_connection(ws, req));
+    // Prevent uncaught WS 'error' when listen fails (handled on https_server)
+    ws_server.on('error', _.noop);
+    try {
+        const actual_port = await listen_https_port(https_server, port);
+        return { https_server, ws_server, actual_port };
+    } catch (err) {
+        close_silent(ws_server);
+        close_silent(https_server);
+        throw err;
+    }
+}
+
+/**
+ * Bind HTTPS+WSS, trying the next port in AGENT_RPC_PORT_RANGE on EADDRINUSE.
+ * Outside that range (e.g. hosted 60100) or port 0, a single attempt only.
+ * @param {number} start_port
+ * @param {import('https').ServerOptions} ssl_context
+ * @returns {Promise<{
+ *   https_server: import('https').Server,
+ *   ws_server: *,
+ *   actual_port: number,
+ * }>}
+ */
+async function bind_shared_wss_with_port_fallback(start_port, ssl_context) {
+    if (start_port === 0) {
+        return try_listen_shared_wss(0, ssl_context);
+    }
+    const min = config.AGENT_RPC_PORT_RANGE_MIN;
+    const max = config.AGENT_RPC_PORT_RANGE_MAX;
+    if (start_port < min || start_port > max) {
+        return try_listen_shared_wss(start_port, ssl_context);
+    }
+
+    let last_err;
+    for (let port = start_port; port <= max; ++port) {
+        try {
+            return await try_listen_shared_wss(port, ssl_context);
+        } catch (err) {
+            last_err = err;
+            if (err.code !== 'EADDRINUSE') throw err;
+            dbg.warn('N2N WSS EADDRINUSE on port', port, '- trying next in range');
+        }
+    }
+    throw last_err || stackless_error('N2N WSS PORT ALLOCATION EXHAUSTED');
+}
+
+/**
+ * Listen on one port and resolve with the bound port number
+ * @param {import('https').Server} https_server
+ * @param {number} port
+ * @returns {Promise<number>}
+ */
+async function listen_https_port(https_server, port) {
+    https_server.listen(port);
+    try {
+        await once(https_server, 'listening');
+    } catch (err) {
+        await new Promise(resolve => https_server.close(() => resolve()));
+        throw err;
+    }
+    const addr = https_server.address();
+    return (addr && typeof addr === 'object') ? addr.port : port;
+}
+
+/**
+ * Register error/close handlers that tear down shared_wss on unexpected server failure
+ * @param {import('https').Server} https_server
+ * @param {*} ws_server
+ */
+function register_shared_wss_server_events(https_server, ws_server) {
+    ws_server.on('error', err => {
+        dbg.error('N2N WSS SHARED SERVER ERROR', err.stack || err);
+    });
+    https_server.on('error', err => {
+        dbg.error('N2N WSS SHARED HTTPS ERROR', err.stack || err);
+        // Clear before close so joiners cannot attach to a failed listen.
+        // on_close is not invoked here: unexpected close handler covers post-listen cases.
+        clear_shared_wss_for_server(https_server, { invoke_on_close: false });
+        https_server.close();
+    });
+    https_server.on('close', () => {
+        // Intentional last-leave already cleared shared_wss before close
+        if (!shared_wss || shared_wss.https_server !== https_server) return;
+        dbg.warn('N2N WSS SHARED HTTPS CLOSED unexpectedly');
+        clear_shared_wss_for_server(https_server, { invoke_on_close: true });
+    });
+}
+
+/**
+ * Clear shared_wss if it still points at https_server
+ * @param {import('https').Server} https_server
+ * @param {{ invoke_on_close: boolean }} options
+ */
+function clear_shared_wss_for_server(https_server, options) {
+    if (!shared_wss || shared_wss.https_server !== https_server) return;
+    const agents = [...shared_wss.agents];
+    shared_wss = null;
+    for (const agent of agents) {
+        agent._clear_pending_sessions('N2N WSS PENDING CANCELLED');
+        delete agent.n2n_config.wss_port;
+        if (options.invoke_on_close) {
+            const on_close = agent._shared_wss_on_close;
+            agent._shared_wss_on_close = null;
+            if (on_close) on_close();
+        }
+    }
+}
+
+/**
  * Demux inbound shared WSS by n2n_session_id across all joined agents
  * @param {*} ws
  * @param {import('http').IncomingMessage} req
@@ -493,6 +680,63 @@ function close_ws(ws) {
         ws.readyState !== WS.CLOSING) {
         ws.close();
     }
+}
+
+/**
+ * Close an https or ws server, ignoring errors
+ * @param {{ close?: Function } | null | undefined} server
+ */
+function close_silent(server) {
+    if (!server || typeof server.close !== 'function') return;
+    try {
+        server.close();
+    } catch (err) {
+        dbg.warn('N2N WSS CLOSE ERROR', err.message || err);
+    }
+}
+
+/**
+ * Terminate WS clients and close shared servers so sockets do not keep the process alive
+ * @param {import('https').Server | null | undefined} https_server
+ * @param {*} ws_server
+ */
+function force_close_shared_wss_servers(https_server, ws_server) {
+    if (ws_server) {
+        try {
+            for (const client of ws_server.clients) {
+                try {
+                    client.terminate();
+                } catch (err) {
+                    // ignore terminate errors on shutdown
+                }
+            }
+        } catch (err) {
+            dbg.warn('N2N WSS SHARED CLIENTS TERMINATE ERROR', err.message || err);
+        }
+        close_silent(ws_server);
+    }
+    if (https_server) {
+        try {
+            // Node >= 18.2: drop remaining HTTP sockets immediately
+            if (typeof https_server.closeAllConnections === 'function') {
+                https_server.closeAllConnections();
+            }
+        } catch (err) {
+            dbg.warn('N2N WSS SHARED closeAllConnections ERROR', err.message || err);
+        }
+        close_silent(https_server);
+    }
+}
+
+/**
+ * Error without stack noise for expected control-flow failures
+ * @param {string} message
+ * @returns {Error}
+ */
+function stackless_error(message) {
+    const err = new Error(message);
+    err.stack = '';
+    return err;
 }
 
 module.exports = RpcN2NAgent;

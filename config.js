@@ -144,6 +144,10 @@ config.ENABLE_DEV_RANDOM_SEED = process.env.DISABLE_DEV_RANDOM_SEED === 'false' 
 config.AGENT_RPC_PROTOCOL = 'n2n';
 // Default agent WSS listen (PV-pool). Must match noobaa-pvpool NetworkPolicy (60101-60600).
 config.AGENT_RPC_PORT = process.env.AGENT_PORT || '60101';
+// When AGENT_RPC_PORT is busy (e.g. hostNetwork and another agent on the same node),
+// try the next ports in this range. Endpoints advertise the port that actually bound.
+config.AGENT_RPC_PORT_RANGE_MIN = 60101;
+config.AGENT_RPC_PORT_RANGE_MAX = 60600;
 
 config.RPC_CONNECT_TIMEOUT = 120 * 1000;
 config.RPC_SEND_TIMEOUT = 120 * 1000;
