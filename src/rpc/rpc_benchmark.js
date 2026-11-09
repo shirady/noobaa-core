@@ -193,7 +193,12 @@ async function start() {
                 process.once('exit', stop_n2n_listener);
                 process.once('SIGINT', () => process.exit(130));
                 process.once('SIGTERM', () => process.exit(143));
-                await n2n_agent.start_shared_wss_listen(0, ssl_utils.generate_ssl_certificate());
+                try {
+                    await n2n_agent.start_shared_wss_listen(0, ssl_utils.generate_ssl_certificate());
+                } catch (err) {
+                    dbg.error('WSS STARTUP ERROR', err.stack || err);
+                    process.exit(1);
+                }
             }
 
         } else {
