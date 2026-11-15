@@ -13,7 +13,6 @@ const assert = require('assert');
 const { EventEmitter } = require('events');
 const sinon = require('sinon');
 const { mock } = require('node:test');
-const { EventEmitter } = require('events');
 const { setImmediate: set_immediate } = require('node:timers/promises');
 // @ts-ignore no @types/ws in this repo
 const WS = require('ws');
@@ -273,6 +272,7 @@ mocha.describe('RPC', function() {
 
     mocha.afterEach('test_rpc.afterEach', function() {
         rpc.disconnect_all();
+        rpc = null;
         client = null;
     });
 
@@ -724,6 +724,82 @@ mocha.describe('RPC', function() {
         }
     });
 
+});
+
+/**
+ * MD is fronted by the s3 Service, so RPC HTTPS must present the S3 cert
+ * (not the historical MGMT default) when cert_service is set.
+ */
+mocha.describe('RPC HTTP cert_service', function() {
+
+    function fake_cert_info() {
+        const info = new EventEmitter();
+        info.cert = ssl_utils.generate_ssl_certificate();
+        return info;
+    }
+
+    mocha.it('defaults to MGMT when cert_service is omitted', async function() {
+        const sandbox = sinon.createSandbox();
+        const stub = sandbox.stub(ssl_utils, 'get_ssl_cert_info').callsFake(async () => fake_cert_info());
+        const rpc_http = new RpcHttpServer();
+        let server;
+        try {
+            server = await rpc_http.start_server({ port: 0, protocol: 'wss:' });
+            assert.strictEqual(stub.callCount, 1);
+            assert.strictEqual(stub.firstCall.args[0], 'MGMT');
+        } finally {
+            if (server) server.close();
+            sandbox.restore();
+        }
+    });
+
+    mocha.it('uses S3 when cert_service is S3 (MD path)', async function() {
+        const sandbox = sinon.createSandbox();
+        const stub = sandbox.stub(ssl_utils, 'get_ssl_cert_info').callsFake(async () => fake_cert_info());
+        const rpc_http = new RpcHttpServer();
+        let server;
+        try {
+            server = await rpc_http.start_server({
+                port: 0,
+                protocol: 'wss:',
+                cert_service: 'S3',
+            });
+            assert.strictEqual(stub.callCount, 1);
+            assert.strictEqual(stub.firstCall.args[0], 'S3');
+        } finally {
+            if (server) server.close();
+            sandbox.restore();
+        }
+    });
+});
+
+mocha.describe('md_server cert_service', function() {
+
+    mocha.it('register_rpc starts MD HTTPS with cert_service S3', async function() {
+        const sandbox = sinon.createSandbox();
+        const server_rpc = require('../../../server/server_rpc');
+        const db_client = require('../../../util/db_client');
+        const md_server = require('../../../server/md_server');
+
+        const prev_md = server_rpc.rpc.router.md;
+        sandbox.stub(db_client, 'instance').returns({ connect() { /* no-op */ } });
+        sandbox.stub(server_rpc, 'register_object_services');
+        sandbox.stub(server_rpc, 'register_common_services');
+        server_rpc.rpc.router.md = 'wss://s3.example.svc:8444';
+        const start = sandbox.stub(server_rpc.rpc, 'start_http_server').resolves({});
+
+        try {
+            await md_server.register_rpc();
+            assert.strictEqual(start.callCount, 1);
+            assert.strictEqual(start.firstCall.args[0].cert_service, 'S3');
+            assert.strictEqual(start.firstCall.args[0].protocol, 'wss:');
+            assert.strictEqual(String(start.firstCall.args[0].port), '8444');
+            assert.strictEqual(server_rpc.rpc.router.md, 'fcall://fcall');
+        } finally {
+            sandbox.restore();
+            server_rpc.rpc.router.md = prev_md;
+        }
+    });
 });
 
 mocha.describe('N2N WSS connection and session handling', function() {
