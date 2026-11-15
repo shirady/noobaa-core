@@ -99,11 +99,16 @@ class RpcN2NConnection extends RpcBaseConnection {
 
     /**
      * Accept remote signal info and return local info for the signal reply.
-     * @param {object} remote_info
+     * @param {{ credentials?: object, candidates?: object }} remote_info
      * @returns {object|Promise<object>}
      */
     accept(remote_info) {
         if (config.ROLLBACK_N2N_TO_ICE) {
+            if (!remote_info || (!remote_info.credentials && !remote_info.candidates)) {
+                const err = new Error('N2N ICE PEER USING WSS (upgrade/rollback mismatch)');
+                dbg.error(err.message, this.connid);
+                throw err;
+            }
             return this.ice.accept(remote_info);
         }
         return n2n_wss.accept(this, remote_info);
